@@ -6,6 +6,7 @@ gcode files can be loaded and run with specific Feed and Speed settings.
 Gcode loops are simulated (using a very simple WHILE DO syntax that must be annotated within the gcode) and can be run independently and (be) iterated at will.
 This makes it easy to laser draw and cut without the need to (re)connect the device, so drawings and cuts have the full (relative) machine precision.
 
+```
 $ ./grblhud.py --help
 usage: grblhud.py [-h] [--serialdevice /dev/<serial-tty-name>] [--status /dev/<terminal-tty-name>]
 
@@ -40,4 +41,4 @@ Type one of the following commands:
      -- '?' status, 
      -- 'ctrl-x' or 'command + x' soft reset!
 [Idle XY:00.000,00.000 FS:0,0] grbl> exit
-
+```
