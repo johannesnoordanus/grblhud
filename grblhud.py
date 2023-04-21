@@ -126,7 +126,6 @@ class Grblbuffer(threading.Thread):
         verbose = False;
 
         with Grblbuffer.serialio_lock:
-            # print("start BUFFER", Grblbuffer.gcode_count, Grblbuffer.serial_buffer_count, Grblbuffer.line_count)
 
             if line != '':
                 Grblbuffer.line_count += 1 # Iterate line counter
@@ -167,7 +166,15 @@ class Grblbuffer(threading.Thread):
                 self.serial.write(l_blockn.encode()) # Send g-code block to grbl
                 if verbose: print("BUF:",str(sum(Grblbuffer.serial_buffer_count)),"REC:",grbl_out)
 
-            # print("end BUFFER", Grblbuffer.gcode_count, Grblbuffer.serial_buffer_count, Grblbuffer.line_count)
+#END class Grblbuffer
+
+def is_int(i):
+    try: 
+        int(i)
+    except ValueError:
+        return False
+    else:
+        return True
 
 def machine_init(device):
     # open serial device (grlb)
@@ -306,18 +313,24 @@ if __name__ == '__main__':
                         if line.find("Boundingbox") >= 0:
                             gcodeFile["bBox"] = line[line.find("Boundingbox"):].strip()
 
-                        # this or 'runtime' with run function below ?
-                        # unroll loop(s); emulate while instructions like this:
                         #    #100 = 1
                         #    WHILE [#100 LE 5] DO1
                         #    (Some G-Code Blocks Go Here to Be Repeated Each Loop)
                         #    #100 = #100 + 1 (Increase #100 by 1 each iteration of the loop)
-                        #    END1                        
+                        #    END1
 
-                        # ...
+                        # Simulate gcode WHILE DO instructions (above) like this:
+                        #    ; WHILE <count> <loopname>' example: '; WHILE 23 aloop123'
+                        #    (Some G-Code Blocks Go Here to Be Repeated Each Loop)
+                        #    ; DO <loopname>' example: '; DO aloop123'
+                        #
+                        # Note that this is an annotation (quoted out so the grbl controller does not see it)
+                        # Note also that loopnames are all lowercase! And have a number (if any) at the end:
+                        # in regex '[a-z]+[0-9]*'
+
                         # get while loop info
                         if line.find("; WHILE") >= 0:
-                            # while format: '; WHILE <int> <loopname>' example: '; WHILE 23 Aloop123'
+                            # WHILE format: '; WHILE <int> <loopname>' example: '; WHILE 23 Aloop123'
                             # save buffer start index for this while (should be a loop name)
                             while_loopname = line[re.search(" [a-z]+[0-9]*",line).start() + 1:].strip()
                             while_count = int(line[re.search(" [0-9]+",line).start() + 1:re.search(" [0-9]+",line).end()])
@@ -328,21 +341,34 @@ if __name__ == '__main__':
                             # find corresponding 'WHILE DO' save buffer 'end' index for this
                             if do_loopname in gcodeFile["WHILE"]:
                                 gcodeFile["WHILE"][do_loopname]["pcend"] = i-1
+                                # check loop overlap
+                                overlap = False
+                                for loop in gcodeFile['WHILE']:
+                                    if gcodeFile['WHILE'][loop]['pcend'] == 0 and \
+                                       gcodeFile['WHILE'][loop]['pcstart'] > gcodeFile["WHILE"][do_loopname]["pcstart"]:
+                                        print("WHILE loops '" + loop + "' and '" + do_loopname + "' overlap!, abort load.")
+                                        # clear buffer/loop info
+                                        gcodeFile = { "name" : "", "bBox" : "", "buffer" : [], "WHILE" : {} }
+                                        overlap = True
+                                if overlap: break
                             else:
-                                print("program WHILE info isn't consistent: cannot find WHILE label '" + do_loopname + "'") 
-                                continue
+                                print("WHILE info isn't consistent: cannot find WHILE label '" + do_loopname + "'!, abort load." ) 
+                                # clear buffer/loop info
+                                gcodeFile = { "name" : "", "bBox" : "", "buffer" : [], "WHILE" : {} }
+                                break
 
                         gcodeFile["buffer"].append(line)
 
                     # give load summary 
-                    print("\nFile loaded", len(gcodeFile["buffer"]) - 1, "lines", gcodeFile["bBox"])
+                    if len(gcodeFile["buffer"]) > 0:
+                        print("\nFile loaded", len(gcodeFile["buffer"]) - 1, "lines", gcodeFile["bBox"])
                     if gcodeFile["WHILE"] != {}:
                         print("Detected the following loop(s):")
                         for loop in gcodeFile['WHILE']:
                             # {'pcstart': 13, 'pcend': 16, 'count': 2}
                             print("    " + loop + ": ", gcodeFile['WHILE'][loop]['count'], "X [", gcodeFile['WHILE'][loop]['pcstart'],
                                   "]-[", gcodeFile['WHILE'][loop]['pcend'], "]", sep = '')
-                            print("    (Note that loops can be run separately using 'run LOOP <loopname> [F<feed>] [S<speed>]')\n")
+                        print("    (Note that loops can be run separately using 'run LOOP <loopname> [F<feed>] [S<speed>]')\n")
 
                 except Exception as e: print(e) 
                 continue
@@ -377,11 +403,20 @@ if __name__ == '__main__':
                     # run loop
                     loopname = line[re.search(" [a-z]+[0-9]*",line).start() + 1:].strip()
 
-                    print("loopname:", loopname)
-
                     if loopname in gcodeFile["WHILE"]:
                         count = gcodeFile["WHILE"][loopname]["count"]
-                        count = input("Loop how many times? (default = " + str(gcodeFile["WHILE"][loopname]["count"]) + ")? ")
+                        setcount = input("Loop how many times? (default = " + str(gcodeFile["WHILE"][loopname]["count"]) + ")? ")
+                        if setcount != '':
+                            if is_int(setcount):
+                                count = int(setcount)
+                            else: 
+                                print("Entered invalid loop count:", setcount)
+                                continue
+
+                        if not count > 0:
+                            print("Invalid loop count must be > 0:", count)
+                            continue
+
                         print("Run loop", loopname, count, "times", FS_update, gcodeFile["bBox"])
                         yesorno = input("Are you sure (checked bbox, Feed, Spindle rate and set M3/M4)? (yes/no) ")
                         if "yes" in yesorno:
@@ -392,9 +427,11 @@ if __name__ == '__main__':
                             print("\rrun starts in 1 seconds ...", end = '', flush = True)
                             sleep(1)
                             print(" run")
+
+                            # unroll loop(s); 
                             for loopcount in range(int(count)):
                                 grblbuffer.put("; " + loopname + " iterate nr: " + str(loopcount + 1))
-                                print("[" + str(i) + "]\t", "; " + loopname + " iterate nr: " + str(loopcount + 1))
+                                print("<" + str(i) + ">\t", "; " + loopname + " iterate nr: " + str(loopcount + 1))
                                 for li in range(gcodeFile["WHILE"][loopname]["pcstart"], gcodeFile["WHILE"][loopname]["pcend"] + 1):
                                     gcline = gcodeFile["buffer"][li]
                                     if feed:
@@ -405,8 +442,7 @@ if __name__ == '__main__':
                                         gcline = re.sub("S[0-9]+", speed, gcline)
 
                                     grblbuffer.put(gcline)
-                                    print("[" + str(li) + "]\t", gcline, end = '')
-                        continue
+                                    print("<" + str(li) + ">\t", gcline, end = '')
                     else:
                         print("cannot find loop with label '" + loopname + "'") 
                     continue
@@ -426,11 +462,22 @@ if __name__ == '__main__':
                             sleep(1)
                             print(" run")
 
+                            # unroll loop(s); 
                             # get while loop info
                             for i, line in enumerate(gcodeFile["buffer"]):
-                                #if filter on S and F values, replace for temps (do a test run for example)
-                                print("[" + str(i) + "]\t", line, end = '')
-                                #find DO's get infor from label and repeat code
+                                # put gcode block, substitute set 'speed' and 'feed'
+                                if feed:
+                                    # replace F<nr> in this line of code (if any)
+                                    line = re.sub("F[0-9]+", feed, line)
+
+                                if speed:
+                                    # replace S<nr> in this line of code (if any)
+                                    line = re.sub("S[0-9]+", speed, line)
+
+                                grblbuffer.put(line)
+                                print("<" + str(i) + ">\t", line, end = '')
+
+                                #find DO's get information from label and repeat code
                                 if line.find("; DO") >= 0:
                                     # do format: '; DO <loopname>' example: '; DO Aloop123'
                                     do_loopname = line[re.search(" [a-z]+[0-9]*",line).start() + 1:].strip()
@@ -451,14 +498,17 @@ if __name__ == '__main__':
                                                     gcline = re.sub("S[0-9]+", speed, gcline)
 
                                                 grblbuffer.put(gcline)
-                                                print("[" + str(li) + "]\t", gcline, end = '')
+                                                print("<" + str(li) + ">\t", gcline, end = '')
                                     else:
-                                        print("program WHILE info isn't consistent: cannot find WHILE label '" + do_loopname + "'") 
-                                        continue
-                                grblbuffer.put(line)
+                                        print("WHILE info isn't consistent: cannot find WHILE label '" + do_loopname + "', Abort run!") 
+                                        break
                         continue
 
-                    else: print("Run error: memory buffer contains file", gcodeFile["name"])
+                    else:
+                        print("Run error: memory buffer contains ", end='')
+                        if gcodeFile["name"] == '':
+                            print("no file")
+                        else: print("file", gcodeFile["name"])
                     continue
 
             # set 'realitime' Speed up down 'S+10', 'S+1', 'S-10', 'S-1' command
