@@ -12,25 +12,25 @@ from time import sleep
 # needs pyserial!
 import serial
 
+# subclass of Thread
 class Grblbuffer(threading.Thread):
     """
     Grblbuffer: buffering and access to serial io for grbl devices
     """
-    gcode_count = 0
-    line_count = 0
-    serial_buffer_count = []
-
     #
-    serialio_lock = threading.Lock()
+    # class variables
+    #
 
-    # initial buffer state: empty
-    gcode_buffer = []
+    # lock
+    serialio_lock = threading.Lock()
 
     # buffer empty condition
     bec = threading.Condition()
 
+    # device buffer size
     RX_BUFFER_SIZE = 128
 
+    # class global thread exit signal
     GRBLHUD_EXIT = False
 
     def __init__(self, serial, status_out = None):
@@ -38,11 +38,19 @@ class Grblbuffer(threading.Thread):
         self.serial = serial
         self.status_out = status_out
 
+        # device buffer count
+        self.gcode_count = 0
+        self.line_count = 0
+        self.serial_buffer_count = []
+
+        # initial buffer state: empty
+        self.gcode_buffer = []
+
         self.machinestatus = { "state" : "", "X" : 0.0, "Y" : 0.0, "Feed" : 0, "Speed" : 0 }
 
         # create and start query process
         self.grblstatus = threading.Thread(target=self.status, args=(.5,))
-        self.grblstatus.daemon = True
+        #self.grblstatus.daemon = True
         self.grblstatus.start()
 
     def update_machinestatus(self, status):
@@ -75,12 +83,12 @@ class Grblbuffer(threading.Thread):
         write status request to grbl device and get response
         """
         print("Status report every", delay, "seconds")
-        while True:
+        while not Grblbuffer.GRBLHUD_EXIT:
             with Grblbuffer.serialio_lock:
                 # write direct command '?'
                 self.serial.write("?".encode())
                 #read result
-                while self.serial.in_waiting:
+                while not Grblbuffer.GRBLHUD_EXIT and self.serial.in_waiting:
                     out_temp = self.serial.read_until().strip() # Wait for grbl response
                     if out_temp.find(b"ok") < 0 and out_temp.find(b"error") < 0 :
                         if re.search("^<.+>$", out_temp.decode('ascii')):
@@ -90,17 +98,18 @@ class Grblbuffer(threading.Thread):
                         else:
                             print(out_temp.decode('ascii').strip())
                     else :
-                        Grblbuffer.gcode_count += 1 # Iterate g-code counter
-                        del Grblbuffer.serial_buffer_count[0] # Delete the block character count corresponding to the last 'ok'
+                        self.gcode_count += 1 # Iterate g-code counter
+                        del self.serial_buffer_count[0] # Delete the block character count corresponding to the last 'ok'
                         print(out_temp.decode('ascii').strip())
 
             sleep(delay)
+        print("Status report exit")
 
     def buffer_not_empty(self):
         """
        	check if gcode buffer has elements
         """
-        return len(Grblbuffer.gcode_buffer)
+        return len(self.gcode_buffer)
 
     def put(self, line, prepend=False):
         """
@@ -111,12 +120,12 @@ class Grblbuffer(threading.Thread):
                 Grblbuffer.bec.notify()
             if prepend:
                 # put line at the start of the queue (first served/prioritized)
-                Grblbuffer.gcode_buffer = [line] + Grblbuffer.gcode_buffer
+                self.gcode_buffer = [line] + self.gcode_buffer
             else:
                 # put line at the end of the queue (last served)
-                Grblbuffer.gcode_buffer.append(line)
+                self.gcode_buffer.append(line)
 
-        #print("put: ", Grblbuffer.gcode_buffer)
+        #print("put: ", self.gcode_buffer)
 
     def get(self):
         """
@@ -127,13 +136,14 @@ class Grblbuffer(threading.Thread):
         with Grblbuffer.bec:
             Grblbuffer.bec.wait_for(self.buffer_not_empty)
 
-            line = Grblbuffer.gcode_buffer[0]
-            del Grblbuffer.gcode_buffer[0]
+            line = self.gcode_buffer[0]
+            del self.gcode_buffer[0]
         return line
 
+    # override run message
     def run(self):
         """
-       	gcode from buffer and put it in the device buffer
+       	get gcode from buffer: put it in the 'device' buffer
         """
         print("Start command queue")
         while not Grblbuffer.GRBLHUD_EXIT:
@@ -157,13 +167,13 @@ class Grblbuffer(threading.Thread):
         with Grblbuffer.serialio_lock:
 
             if line != '':
-                Grblbuffer.line_count += 1 # Iterate line counter
+                self.line_count += 1 # Iterate line counter
                 l_block = line.strip()
-                Grblbuffer.serial_buffer_count.append(len(l_block)+1) # Track number of characters in grbl serial read buffer
+                self.serial_buffer_count.append(len(l_block)+1) # Track number of characters in grbl serial read buffer
 
             grbl_out = ''
 
-            while (sum(Grblbuffer.serial_buffer_count) >= Grblbuffer.RX_BUFFER_SIZE-1) or self.serial.in_waiting:
+            while not Grblbuffer.GRBLHUD_EXIT and ((sum(self.serial_buffer_count) >= Grblbuffer.RX_BUFFER_SIZE-1) or self.serial.in_waiting):
                 out_temp = self.serial.read_until().strip() # Wait for grbl response
                 if out_temp.find(b"ok") < 0 and out_temp.find(b"error") < 0 :
                     #if verbose: print(" Debug:", out_temp) # Debug response
@@ -175,24 +185,17 @@ class Grblbuffer(threading.Thread):
                         print(out_temp.decode('ascii').strip())
                 else :
                     grbl_out += str(out_temp)
-                    Grblbuffer.gcode_count += 1 # Iterate g-code counter
-                    grbl_out += str(Grblbuffer.gcode_count) # Add line finished indicator
-                    del Grblbuffer.serial_buffer_count[0] # Delete the block character count corresponding to the last 'ok'
+                    self.gcode_count += 1 # Iterate g-code counter
+                    grbl_out += str(self.gcode_count) # Add line finished indicator
+                    del self.serial_buffer_count[0] # Delete the block character count corresponding to the last 'ok'
                     print(out_temp.decode('ascii').strip())
 
-                # filter output on grbl status i.e. '<Idle|MPos:0.000,0.000,0.000|FS:0,0>'
-                #if re.search("^<.+>$", out_temp.decode('ascii')):
-                #    print(out_temp.decode('ascii').strip(), file=self.status_out, flush = True)
-                #else:
-                #print("OUT: ", out_temp)
-                #print(out_temp.decode('ascii').strip(), file = out, flush = True)
-
             if line != '':
-                if verbose: print("SND: " + str(Grblbuffer.line_count) + " : " + l_block)
+                if verbose: print("SND: " + str(self.line_count) + " : " + l_block)
                 # check for special characters not needing a nl
                 l_blockn = l_block + '\n'
                 self.serial.write(l_blockn.encode()) # Send g-code block to grbl
-                if verbose: print("BUF:",str(sum(Grblbuffer.serial_buffer_count)),"REC:",grbl_out)
+                if verbose: print("BUF:",str(sum(self.serial_buffer_count)),"REC:",grbl_out)
 
 #END class Grblbuffer
 
@@ -278,7 +281,7 @@ def main():
 
     # instantiate and run buffer thread (serial io to/from grbl device)
     grblbuffer = Grblbuffer(ser, terminal)
-    grblbuffer.daemon = True
+    #grblbuffer.daemon = True
     grblbuffer.start()
 
     while True:
@@ -289,7 +292,12 @@ def main():
 
             if line == 'exit':
                 print("Wait for program exit ....")
-                _EXIT_PROGRAM = True
+                Grblbuffer.GRBLHUD_EXIT = True
+                grblbuffer.grblstatus.join()
+                #Grblbuffer.bec.notify()
+		# put someting to get run loop out of waiting
+                grblbuffer.put(";")
+                grblbuffer.join()
                 break
             if line.find("help") >= 0:
                 print("Type one of the following commands:")
@@ -299,7 +307,6 @@ def main():
                 print(" - F+10, F+1, F-10, F-1                              (Feed up/down 10% 1%")
                 print(" - softreset                                         (0x18(ctrl-x)")
                 print(" - hardreset                                         (close/open serial port)")
-                print(" - flushio                                           (flush unresponsive device)")
                 print(" - grbl/gcode (direct) command:")
                 print("     -- '!' feed hold, ")
                 print("     -- '~' start/resume, ")
@@ -307,34 +314,59 @@ def main():
                 print("     -- 'ctrl-x' or 'command + x' soft reset!")
                 continue
 
-            if line.find("flushio") >= 0:
-                # direct command: soft reset
-                sr = input("Flush io (yes/no)? ")
-                if sr.find("yes") >= 0:
-                    grblbuffer.serial.flushInput()
-                    sleep(1)
-                continue
-
             if line.find("softreset") >= 0:
                 # direct command: soft reset
                 sr = input("Issue a soft reset (yes/no)? ")
                 if sr.find("yes") >= 0:
-                    grblbuffer.serial.flushInput()
-                    sleep(.5)
-                    grblbuffer.serial.write(b'\x18')
+
+                    # close grblstatus loop and Grblbuffer
+                    Grblbuffer.GRBLHUD_EXIT = True
+                    grblbuffer.grblstatus.join()
+		    # put someting to get run loop out of waiting
+                    grblbuffer.put(";")
+                    grblbuffer.join()
+
+                    # send softreset to device
+                    ser.write(b'\x18')
                     sleep(1)
+
+                    # Wait for grbl to initialize and print startup text (read until ']')
+                    print(ser.read_until(expected=b']').strip().decode('ascii'))
+                    ser.read_until() # read '\n'
+
+                    # enable run
+                    Grblbuffer.GRBLHUD_EXIT = False
+                    # instantiate and run buffer thread (serial io to/from grbl device)
+                    grblbuffer = Grblbuffer(ser, terminal)
+                    grblbuffer.start()
+
                 continue
 
             if line.find("hardreset") >= 0:
-                # direct command: soft reset
+                # hard reset
                 sr = input("Issue a hard reset (yes/no)? ")
                 if sr.find("yes") >= 0:
-                    with Grblbuffer.serialio_lock:
-                        grblbuffer.serial.flushInput()
-                        sleep(.5)
-                        machine_close(grblbuffer.serial)
-                        sleep(.5)
-                        grblbuffer.serial = machine_init(args.serialdevice)
+
+                    # close grblstatus loop and Grblbuffer
+                    Grblbuffer.GRBLHUD_EXIT = True
+                    grblbuffer.grblstatus.join()
+		    # put someting to get run loop out of waiting
+                    grblbuffer.put(";")
+                    grblbuffer.join()
+
+                    # close serial port (and device)
+                    machine_close(grblbuffer.serial)
+                    sleep(.5)
+
+                    # open serial port (and device)
+                    ser = machine_init(args.serialdevice)
+
+                    # enable run
+                    Grblbuffer.GRBLHUD_EXIT = False
+                    # instantiate and run buffer thread (serial io to/from grbl device)
+                    grblbuffer = Grblbuffer(ser, terminal)
+                    grblbuffer.start()
+
                 continue
 
             if re.search("^load +[^<>:;,*|\"]+$", line):
@@ -636,9 +668,9 @@ def main():
         except EOFError:
             break
 
-    print("Exit cmd stream")
+    print("Exit program")
 
-    # close erial port, status terminal
+    # close serial port, status terminal
     machine_close(grblbuffer.serial)
     if terminal: terminal.close()
 
