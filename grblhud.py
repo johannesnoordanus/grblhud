@@ -46,37 +46,38 @@ class Grblbuffer(threading.Thread):
         # initial buffer state: empty
         self.gcode_buffer = []
 
-        self.machinestatus = { "state" : "", "X" : 0.0, "Y" : 0.0, "Feed" : 0, "Speed" : 0 }
+        self.machinestatus = { "state" : "", "X" : 0.0, "Y" : 0.0, "Z" : 0.0, "Feed" : 0, "Speed" : 0 }
 
         # create and start query process
         self.grblstatus = threading.Thread(target=self.status, args=(.5,))
-        #self.grblstatus.daemon = True
         self.grblstatus.start()
 
     def update_machinestatus(self, status):
         """
-        set machinestatus info from status string
+        set machinestatus info from grbl status (result of grbl '?' command)
         """
         if status != '':
+            # Sample status report:
+            #   <Idle|MPos:0.000,0.000,-10.000|FS:0,0>
+            # Note that this format should be part of the grbl specification (check!)
             self.machinestatus = {}
             self.machinestatus["state"] = status[re.search("^<[a-zA-Z]+",status).start()+1:re.search("^<[a-zA-Z]+",status).end()]
 
-            mpos = status[re.search("MPos:[0-9.,]+\|",status).start():re.search("MPos:[0-9.,]+\|",status).end()]
-            self.machinestatus["X"] = float(mpos[re.search("[0-9.]+", mpos).start(): re.search("[0-9.]+", mpos).end()])
-            self.machinestatus["Y"] = float(mpos[re.search(",[0-9.]+", mpos).start()+1: re.search(",[0-9.]+", mpos).end()])
+            mpos = status[re.search("MPos:[+\-]?[0-9.,+\-]+\|",status).start():re.search("MPos:[+\-]?[0-9.,+\-]+\|",status).end()]
+            self.machinestatus["X"] = float(mpos[re.search("[+-]?[0-9.+\-]+", mpos).start(): re.search("[+-]?[0-9.+\-]+", mpos).end()])
+            self.machinestatus["Y"] = float(mpos[re.search(",[+-]?[0-9.+\-]+", mpos).start()+1: re.search(",[+-]?[0-9.+\-]+", mpos).end()])
+            self.machinestatus["Z"] = float(mpos[re.search(",[+-]?[0-9.+\-]+\|", mpos).start()+1: re.search(",[+-]?[0-9.+\-]+\|", mpos).end()-1])
 
             fs = status[re.search("FS:[0-9,]+",status).start():re.search("FS:[0-9,]+",status).end()]
             self.machinestatus["Feed"] = fs[3: re.search("[0-9]+", fs).end()]
             self.machinestatus["Speed"] = fs[re.search(",[0-9]+", fs).start()+1: re.search(",[0-9]+", fs).end()]
 
-            #print("STATUS: ", self.machinestatus)
-
     def format_machinestatus(self):
         """
         format machinestatus for printing
         """
-        # machinestatus = { "state" : "", "X" : 0.0, "Y" : 0.0, "Feed" : 0, "Speed" : 0 }
-        return f"[{self.machinestatus['state']:<4} XY:{self.machinestatus['X']:06.3f},{self.machinestatus['Y']:06.3f} FS:{self.machinestatus['Feed']},{self.machinestatus['Speed']}]"
+        # machinestatus = { "state" : "", "X" : 0.0, "Y" : 0.0, "Z" : 0.0, "Feed" : 0, "Speed" : 0 }
+        return f"[{self.machinestatus['state']:<4} XYZ:{self.machinestatus['X']:06.3f},{self.machinestatus['Y']:06.3f},{self.machinestatus['Z']:06.3f} FS:{self.machinestatus['Feed']},{self.machinestatus['Speed']}]"
 
     def status(self, delay):
         """
@@ -176,7 +177,6 @@ class Grblbuffer(threading.Thread):
             while not Grblbuffer.GRBLHUD_EXIT and ((sum(self.serial_buffer_count) >= Grblbuffer.RX_BUFFER_SIZE-1) or self.serial.in_waiting):
                 out_temp = self.serial.read_until().strip() # Wait for grbl response
                 if out_temp.find(b"ok") < 0 and out_temp.find(b"error") < 0 :
-                    #if verbose: print(" Debug:", out_temp) # Debug response
                     if re.search("^<.+>$", out_temp.decode('ascii')):
                         self.update_machinestatus(out_temp.decode('ascii'))
                         if self.status_out:
@@ -210,22 +210,46 @@ def is_int(i):
 
     return True
 
-def machine_init(device):
+def machine_init(ser):
     """
-    Open serial (grbl) device and report its wakeup
+    Wakeup, report its wakeup message (if any)
     """
-    # open serial device (grlb)
-    print("open serial port", device, "at 115200 bauds (bits/s)")
-    ser = serial.Serial(device, 115200)
-
     # Wake up grbl
     print ("Initializing grbl...")
     ser.write("\r\n\r\n".encode())
 
-    # Wait for grbl to initialize and print startup text (read until ']')
-    print(ser.read_until(expected=b']').strip().decode('ascii'))
-    ser.read_until() # read '\n'
+    print(ser.read_until().strip().decode('ascii'))
+    print(ser.read_until().strip().decode('ascii'))
 
+    # flush input (stray 'ok's may ruin strict block counting)
+    ser.reset_input_buffer()
+
+def machine_open(device):
+    """
+    Open serial (grbl) device
+    """
+    ser = None
+    while True:
+        # try open serial device (grlb)
+        try:
+            ser = serial.Serial(port = device, baudrate = 115200, timeout = 2)
+            print("Opened serial port", device, "at 115200 bauds (bits/s)")
+            break
+        except serial.SerialException:
+            print("Cannot open serial port", device)
+            print("Found the following serial usb device candidates:")
+            filenames = next(os.walk("/dev"))[2]
+            # get known serial device names (linux(es), macos, macold):
+            # on iMac (2009): 				/dev/cu.wchusbserial410 	115200
+            # on Mac mini (first Intel): 		/dev/cu.Repleo-CH341-0000105D 	115200
+            # on linux (arm) (Manjaro linux kernel 6+): /dev/ttyUSB0			115200)
+
+            known_serial_devices = ['/dev/' + item for item in filenames if re.match(".*(serial|usb|ch34)",item, re.IGNORECASE)]
+            for dev in known_serial_devices:
+                print("\t" + dev)
+            device = input("Enter device name: ")
+            if device: continue
+            sys.exit()
     return ser
 
 def machine_close(ser):
@@ -236,7 +260,7 @@ def machine_close(ser):
 
 def create_parser():
     """
-    program (grblhud) input parser
+    grblhud argument(s) parser
     """
     parser = argparse.ArgumentParser(
         description="Stream g-code using grbl's serial read buffer.")
@@ -274,7 +298,9 @@ def main():
     gcodeFile = { "name" : "", "bBox" : "", "buffer" : [], "WHILE" : {} }
 
     # init serial device
-    ser = machine_init(args.serialdevice)
+    ser = machine_open(args.serialdevice)
+    # init device
+    machine_init(ser)
 
     # terminal for status output (or None)
     terminal = args.status
@@ -328,16 +354,19 @@ def main():
 
                     # send softreset to device
                     ser.write(b'\x18')
-                    sleep(1)
 
-                    # Wait for grbl to initialize and print startup text (read until ']')
-                    print(ser.read_until(expected=b']').strip().decode('ascii'))
-                    ser.read_until() # read '\n'
+                    # Wait for grbl to initialize and print startup text (if any)
+                    print(ser.read_until().strip().decode('ascii')) # read until '\n'
+                    print(ser.read_until().strip().decode('ascii')) #
+
+                    # flush input (stray 'ok's may ruin strict block counting)
+                    ser.reset_input_buffer()
 
                     # enable run
                     Grblbuffer.GRBLHUD_EXIT = False
                     # instantiate and run buffer thread (serial io to/from grbl device)
                     grblbuffer = Grblbuffer(ser, terminal)
+                    sleep(1)
                     grblbuffer.start()
 
                 continue
@@ -359,12 +388,14 @@ def main():
                     sleep(.5)
 
                     # open serial port (and device)
-                    ser = machine_init(args.serialdevice)
+                    ser = machine_open(args.serialdevice)
+                    machine_init(ser)
 
                     # enable run
                     Grblbuffer.GRBLHUD_EXIT = False
                     # instantiate and run buffer thread (serial io to/from grbl device)
                     grblbuffer = Grblbuffer(ser, terminal)
+                    sleep(1)
                     grblbuffer.start()
 
                 continue
