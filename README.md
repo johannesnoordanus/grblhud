@@ -2,6 +2,7 @@
 grblhub is a command line based tool to handle grbl code.
 
 It features full control of the grbl (v1.1) device and supports 'realtime' direct commands and buffered streaming for other commands.
+Grbl state is in line viewable and in color!
 Spindle and Feed 'speed' can be updated realtime while gcode (G1) is running; gcode programs can be loaded and run with specific Spindle and Feed settings.
 Gcode loops are simulated (using a very simple WHILE DO syntax that must be annotated within the gcode) and can be run independently and (be) iterated at will.
 This makes it easy to laser draw and cut without the need to (re)connect the device, so drawings and cuts have the full (relative) machine precision.
@@ -27,6 +28,7 @@ WHILE DO syntax:
 Installation note:
 ``` 
     - pyserial must be installed first ('pip install pyserial')
+    - lineinput.py and unblockedgetch.py must be in teh same directory (as grblhud.py) or in python path
     - run 'python3 grblhud.py' or 'chmod u+x grblhud.py' (once) and './grblhud.py' to execute.
       (when in $PATH, 'grblhud.py' suffice)
 ```
