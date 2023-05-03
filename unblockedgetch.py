@@ -59,14 +59,14 @@ class UnblockedGetch:
 
                 # https://stackoverflow.com/questions/75218737/python-sys-stdin-buffer-size-detection:
                 c = sys.stdin.buffer.read1(1)
-
                 # c = sys.stdin.buffer.raw.read(10) # Note this indeed does not block for 3 byte
-                                                   # key input (<-, ->, ^, down arrow) for example.
+                                                    # key input (<-, ->, ^, down arrow) for example.
                 break
 
         # clear cbreak
         self.restore_stdin_io()
-        return c.decode()
+
+        return chr(c[0])
 
 def main():
     print("type 'z' to exit!")
