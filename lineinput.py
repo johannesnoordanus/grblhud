@@ -83,14 +83,15 @@ class Input():
 
         while True:
             c = Input.unblkGetch()
-            if c == Input.ESCAPE:
-                #print("escape")
+
+            if ord(c) == 4:
+                # <Ctrl><D> break off
+                # Discard previous input and return immediately
+                return c
+            elif c == Input.ESCAPE:
                 c1 = Input.unblkGetch()
-                #print("c1:", ord(c1))
                 if c1 == '[':
-                    #print("[")
                     c2 = Input.unblkGetch()
-                    #print("c2:", ord(c2))
                     if c2 == 'A':
                         # CURSOR_UP
                         if hendindex:
@@ -220,6 +221,8 @@ def main():
             E = True
             print('exit')
             break
+        elif len(line) == 1 and ord(line) == 4:
+            print("break off")
 
 if __name__ == '__main__':
     main()
