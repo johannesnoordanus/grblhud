@@ -61,12 +61,15 @@ Example run:
     [Idle XY:00.000,00.000 FS:0,0] grbl> 
     [Idle XY:00.000,00.000 FS:0,0] grbl> help
     Type one of the following commands:
+       (<Ctrl><D>)   FULL STOP                           (continue: (soft)reset)
+       
      - load <filename>                                   (load file to buffer)
      - run [LOOP] <(file/loop)name> [F<eed>] [S<peed>]   (run from buffer)
      - S+10, S+1, S-10, S-1                              (Speed up/down 10% 1%)
      - F+10, F+1, F-10, F-1                              (Feed up/down 10% 1%
-     - softreset                                         (0x18(ctrl-x)
-     - hardreset                                         (close/open serial port)
+     - softreset                                         (Issue soft reset command to device
+     - hardreset                                         (Hard reset: close/open serial port)
+     - SToggle                                           (Spindle Toggle)
      - grbl/gcode (direct) command:
          -- '!' feed hold, 
          -- '~' start/resume, 
