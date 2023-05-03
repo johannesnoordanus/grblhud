@@ -13,8 +13,6 @@ class UnblockedGetch:
     """
     # set at program start
     prevStdinAttributes = termios.tcgetattr(sys.stdin)
-    print("UnblockedGetch: get stdin io attributes")
-
 
     def __init__(self):
         pass
@@ -27,14 +25,12 @@ class UnblockedGetch:
         #  special characters (interrupt, quit, suspend, and flow control) retain their effects on the
         #  tty driver and calling program. Calling first raw() then cbreak() leaves the terminal in cbreak mode."
         tty.setcbreak(sys.stdin, when = termios.TCSANOW)
-        #print("UnblockedGetch: set cbreak")
 
     def restore_stdin_io(self):
         """
         restore stdin attributes
         """
         if UnblockedGetch.prevStdinAttributes:
-            #print("UnblockedGetch: restore stdin io attributes")
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, UnblockedGetch.prevStdinAttributes)
 
     def stdinHasData(self):
