@@ -98,7 +98,6 @@ class Grblbuffer(threading.Thread):
                     f"XYZ:{self.machinestatus['X']:06.3f},{self.machinestatus['Y']:06.3f},{self.machinestatus['Z']:06.3f} "
                     f"FS:{self.machinestatus['Feed']},{self.machinestatus['Speed']}]"
         )
-        #return f"[{self.machinestatus['state']:<4} XYZ:{self.machinestatus['X']:06.3f},{self.machinestatus['Y']:06.3f},{self.machinestatus['Z']:06.3f} FS:{self.machinestatus['Feed']},{self.machinestatus['Speed']}]"
 
     def status(self, delay):
         """
@@ -125,6 +124,8 @@ class Grblbuffer(threading.Thread):
                                 color = Grblbuffer.Red
                             elif "Alarm" in self.machinestatus["state"]:
                                 color = Grblbuffer.IYellow
+                            elif "Sleep" in self.machinestatus["state"]:
+                                color = Grblbuffer.Blue
 
                             prompt_length = len(self.format_machinestatus() + " grbl> ")
                             self.grblinput.display_line(color + self.format_machinestatus() + Grblbuffer.EndCol + " grbl> ", prompt_length)
