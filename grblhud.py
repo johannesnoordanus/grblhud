@@ -33,6 +33,7 @@ class Grblbuffer(threading.Thread):
     Purple = '\033[0;35m'    # Purple
     Cyan   = '\033[0;36m'    # Cyan
     White  = '\033[0;37m'    # White
+
     EndCol = '\033[0;0m'     # End of color setting
 
     # lock
@@ -126,6 +127,8 @@ class Grblbuffer(threading.Thread):
                                 color = Grblbuffer.IYellow
                             elif "Sleep" in self.machinestatus["state"]:
                                 color = Grblbuffer.Blue
+                            elif "Door" in self.machinestatus["state"]:
+                                color = Grblbuffer.Cyan
 
                             prompt_length = len(self.format_machinestatus() + " grbl> ")
                             self.grblinput.display_line(color + self.format_machinestatus() + Grblbuffer.EndCol + " grbl> ", prompt_length)
@@ -360,23 +363,42 @@ def main():
             line = grblinput.line_input(grblbuffer.format_machinestatus() + " grbl> ")
             #line = input(grblbuffer.format_machinestatus() + " grbl> ")
 
+            if len(line) == 1 and ord(line) == 4:
+                with Grblbuffer.serialio_lock:
+                    # <Ctrl><D>
+                    print("FULL STOP")
+                    grblbuffer.serial.write(b'\x84')
+
+                    # get response
+                    print(ser.read_until().strip().decode('ascii'), flush = True) # read until '\n'
+                    print(ser.read_until().strip().decode('ascii'), flush = True)
+
+                    # Wait for grbl to initialize and print startup text (if any)
+                    while ser.in_waiting:
+                        print(ser.read_until().strip().decode('ascii'), flush = True) # read until '\n'
+                        print(ser.read_until().strip().decode('ascii'), flush = True) #
+                continue
+
             if line == 'exit':
                 print("Wait for program exit ....")
                 Grblbuffer.GRBLHUD_EXIT = True
                 grblbuffer.grblstatus.join()
-                #Grblbuffer.bec.notify()
 		# put someting to get run loop out of waiting
                 grblbuffer.put(";")
                 grblbuffer.join()
                 break
+
             if line.find("help") >= 0:
                 print("Type one of the following commands:")
+                print("   (<Ctrl><D>)   FULL STOP                           (continue: (soft)reset)")
+                print()
                 print(" - load <filename>                                   (load file to buffer)")
                 print(" - run [LOOP] <(file/loop)name> [F<eed>] [S<peed>]   (run from buffer)")
                 print(" - S+10, S+1, S-10, S-1                              (Speed up/down 10% 1%)")
                 print(" - F+10, F+1, F-10, F-1                              (Feed up/down 10% 1%")
-                print(" - softreset                                         (0x18(ctrl-x)")
-                print(" - hardreset                                         (close/open serial port)")
+                print(" - softreset                                         (Issue soft reset command to device")
+                print(" - hardreset                                         (Hard reset: close/open serial port)")
+                print(" - SToggle                                           (Spindle Toggle)")
                 print(" - grbl/gcode (direct) command:")
                 print("     -- '!' feed hold, ")
                 print("     -- '~' start/resume, ")
@@ -430,12 +452,27 @@ def main():
                     # enable run
                     Grblbuffer.GRBLHUD_EXIT = False
                     # instantiate and run buffer thread (serial io to/from grbl device)
-                    #grblbuffer = Grblbuffer(ser, terminal)
                     with Grblbuffer.serialio_lock:
                         grblbuffer = Grblbuffer(ser, grblinput, terminal)
                         sleep(1)
                     grblbuffer.start()
 
+                continue
+
+            if line == "SToggle":
+                with Grblbuffer.serialio_lock:
+                    # <Ctrl><D>
+                    print("Spindle on/off ")
+                    grblbuffer.serial.write(b'\x9E') # 0x9E:ToggleSpindleStop
+
+                    # get response
+                    print(ser.read_until().strip().decode('ascii'), flush = True) # read until '\n'
+                    print(ser.read_until().strip().decode('ascii'), flush = True)
+
+                    # Wait for grbl to initialize and print startup text (if any)
+                    while ser.in_waiting:
+                        print(ser.read_until().strip().decode('ascii'), flush = True) # read until '\n'
+                        print(ser.read_until().strip().decode('ascii'), flush = True) #
                 continue
 
             if re.search("^load +[^<>:;,*|\"]+$", line):
