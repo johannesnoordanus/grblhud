@@ -7,7 +7,9 @@ Spindle and Feed 'speed' can be updated realtime while gcode (G1) is running; gc
 Gcode loops are simulated (using a very simple WHILE DO syntax that must be annotated within the gcode) and can be run independently and (be) iterated at will.
 This makes it easy to laser draw and cut without the need to (re)connect the device, so drawings and cuts have the full (relative) machine precision.</br>
 
-grblhub is tested on different platforms and operating systems and two grbl v1.1 devices (a lasercutter and a CNC router)
+Grblhub is tested on several platforms - arm64/intel - and operating systems - Linux/macosx and two grbl v1.1 devices (a lasercutter and a CNC router)
+
+Information on grbl commands: https://github.com/gnea/grbl/blob/master/doc/markdown/commands.md
 
 WHILE DO syntax:
 ```
