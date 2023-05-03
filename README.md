@@ -1,5 +1,5 @@
 # grblhub
-grblhub is a command line based tool to handle grbl code.
+Grblhub is a command line based tool to handle grbl code.
 
 It features full control of the grbl (v1.1) device and supports 'realtime' direct commands and buffered streaming for other commands.</br>
 Grbl state is in line viewable and in color!</br>
