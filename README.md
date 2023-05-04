@@ -69,7 +69,7 @@ Example run:
      - F+10, F+1, F-10, F-1                              (Feed up/down 10% 1%
      - softreset                                         (Issue soft reset command to device
      - hardreset                                         (Hard reset: close/open serial port)
-     - SToggle                                           (Spindle Toggle)
+     - SToggle                                           (Spindle Toggle, in 'Hold' state only)
      - grbl/gcode (direct) command:
          -- '!' feed hold, 
          -- '~' start/resume, 
