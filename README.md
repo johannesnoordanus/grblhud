@@ -21,9 +21,9 @@ WHILE DO syntax:
     #    END1
     
     # Simulate gcode WHILE DO instructions (above) like this:
-    #    ; WHILE <count> <loopname>' example: '; WHILE 23 aloop123'
+    #    ; WHILE <count> <loopname>'    example: '; WHILE 23 aloop123'
     #    (Some G-Code Blocks Go Here to Be Repeated Each Loop)
-    #    ; DO <loopname>' example: '; DO aloop123'
+    #    ; DO <loopname>'               example: '; DO aloop123'
     #
     # Note that this is an annotation (quoted out so the grbl controller does not see it)
     # Note also that loopnames are all lowercase! And have a number (if any) at the end:
