@@ -76,18 +76,33 @@ class Grblbuffer(threading.Thread):
         if status != '':
             # Sample status report:
             #   <Idle|MPos:0.000,0.000,-10.000|FS:0,0>
-            # Note that this format should be part of the grbl specification (check!)
-            self.machinestatus = {}
-            self.machinestatus["state"] = status[re.search("^<[a-zA-Z]+",status).start()+1:re.search("^<[a-zA-Z]+",status).end()]
+            # Note that this format should be part of the grbl specification.)
+            self.machinestatus = {"state" : "Error", "X" : -1.0, "Y" : -1.0, "Z" : -1.0, "Feed" : "-1", "Speed" : "-1" }
 
-            mpos = status[re.search("MPos:[+\-]?[0-9.,+\-]+\|",status).start():re.search("MPos:[+\-]?[0-9.,+\-]+\|",status).end()]
-            self.machinestatus["X"] = float(mpos[re.search("[+-]?[0-9.+\-]+", mpos).start(): re.search("[+-]?[0-9.+\-]+", mpos).end()])
-            self.machinestatus["Y"] = float(mpos[re.search(",[+-]?[0-9.+\-]+", mpos).start()+1: re.search(",[+-]?[0-9.+\-]+", mpos).end()])
-            self.machinestatus["Z"] = float(mpos[re.search(",[+-]?[0-9.+\-]+\|", mpos).start()+1: re.search(",[+-]?[0-9.+\-]+\|", mpos).end()-1])
+            state = re.search("^<[a-zA-Z]+",status)
+            if state:
+                self.machinestatus["state"] = state.group(0)[1:]
 
-            fs = status[re.search("FS:[0-9,]+",status).start():re.search("FS:[0-9,]+",status).end()]
-            self.machinestatus["Feed"] = fs[3: re.search("[0-9]+", fs).end()]
-            self.machinestatus["Speed"] = fs[re.search(",[0-9]+", fs).start()+1: re.search(",[0-9]+", fs).end()]
+            mpos = re.search("MPos:[+\-]?[0-9.,+\-]+\|",status)
+            if mpos:
+                X = re.search("[+-]?[0-9.+\-]+", mpos.group(0))
+                if X:
+                    self.machinestatus["X"] = float(X.group(0))
+                Y = re.search(",[+-]?[0-9.+\-]+", mpos.group(0))
+                if Y:
+                    self.machinestatus["Y"] = float(Y.group(0)[1:])
+                Z = re.search(",[+-]?[0-9.+\-]+\|", mpos.group(0))
+                if Z:
+                    self.machinestatus["Z"] = float(Z.group(0)[1:-1])
+
+            fs = re.search("FS:[0-9,]+",status)
+            if fs:
+                F = re.search("[0-9]+", fs.group(0))
+                if F:
+                    self.machinestatus["Feed"] = F.group(0)
+                S = re.search(",[0-9]+", fs.group(0))
+                if S:
+                    self.machinestatus["Speed"] = S.group(0)[1:]
 
     def format_machinestatus(self):
         """
@@ -135,10 +150,15 @@ class Grblbuffer(threading.Thread):
                             if self.status_out:
                                 print("\r" + lineinput.Input.ERASE_TO_EOL + out_temp.decode('ascii').strip(), file=self.status_out, end = '')
                         #else:
+                            # Ignore all else
+                            # Note that this should not happen, but sometimes, it seems, returns on direct commands are broken off
                             #print(out_temp.decode('ascii').strip())
                     else :
-                        self.gcode_count += 1 # Iterate g-code counter
-                        del self.serial_buffer_count[0] # Delete the block character count corresponding to the last 'ok'
+                        # Note: ignore incomming pending ok's until counting is in balance.
+                        # this is needed at startup when the device is in 'Hold' state
+                        if self.serial_buffer_count:         # Delete the block character count corresponding to the last 'ok'
+                            self.gcode_count += 1               # Iterate g-code counter
+                            del self.serial_buffer_count[0]     # Delete the block character count corresponding to the last 'ok'
                         print(out_temp.decode('ascii').strip())
             sleep(delay)
         print("Status report exit")
@@ -220,9 +240,12 @@ class Grblbuffer(threading.Thread):
                         print(out_temp.decode('ascii').strip())
                 else :
                     grbl_out += str(out_temp)
-                    self.gcode_count += 1 # Iterate g-code counter
-                    grbl_out += str(self.gcode_count) # Add line finished indicator
-                    del self.serial_buffer_count[0] # Delete the block character count corresponding to the last 'ok'
+                    # Note: ignore incomming pending ok's until counting is in balance.
+                    # this is needed at startup when the device is in 'Hold' state
+                    if self.serial_buffer_count:
+                        self.gcode_count += 1                   # Iterate g-code counter
+                        grbl_out += str(self.gcode_count)       # Add line finished indicator
+                        del self.serial_buffer_count[0]         # Delete the block character count corresponding to the last 'ok'
                     print(out_temp.decode('ascii').strip())
 
             if line != '':
@@ -291,7 +314,7 @@ def machine_open(device):
                 print("\t" + dev)
             device = input("Enter device name: ")
             if device: continue
-            sys.exit()
+            exit()
     return ser
 
 def machine_close(ser):
@@ -398,7 +421,7 @@ def main():
                 print(" - F+10, F+1, F-10, F-1                              (Feed up/down 10% 1%")
                 print(" - softreset                                         (Issue soft reset command to device")
                 print(" - hardreset                                         (Hard reset: close/open serial port)")
-                print(" - SToggle                                           (Spindle Toggle)")
+                print(" - SToggle                                           (Spindle Toggle, in 'Hold' state only)")
                 print(" - grbl/gcode (direct) command:")
                 print("     -- '!' feed hold, ")
                 print("     -- '~' start/resume, ")
