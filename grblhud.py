@@ -484,8 +484,11 @@ def main():
 
             if line == "SToggle":
                 with Grblbuffer.serialio_lock:
-                    # <Ctrl><D>
-                    print("Spindle on/off ")
+                    # check machine state
+                    if grblbuffer.machinestatus["state"] != "Hold":
+                        print("machinestate must be 'Hold' to toggle Spindle")
+                        continue
+                    print("Spindle On/Off ")
                     grblbuffer.serial.write(b'\x9E') # 0x9E:ToggleSpindleStop
 
                     # get response
