@@ -48,6 +48,9 @@ class Grblbuffer(threading.Thread):
     # class global thread exit signal
     GRBLHUD_EXIT = False
 
+    # pauze status report when true
+    STATUS_PAUZE = False
+
     def __init__(self, serial, grblinput, status_out = None):
         threading.Thread.__init__(self)
         self.serial = serial
@@ -121,45 +124,46 @@ class Grblbuffer(threading.Thread):
         """
         print("Status report every", delay, "seconds")
         while not Grblbuffer.GRBLHUD_EXIT:
-            with Grblbuffer.serialio_lock:
-                # write direct command '?'
-                self.serial.write("?".encode())
-                #read result
-                while not Grblbuffer.GRBLHUD_EXIT and self.serial.in_waiting:
-                    out_temp = self.serial.read_until().strip() # Wait for grbl response
-                    if out_temp.find(b"ok") < 0 and out_temp.find(b"error") < 0 :
-                        if re.search("^<.+>$", out_temp.decode('ascii')):
-                            self.update_machinestatus(out_temp.decode('ascii'))
-                            color = ''
-                            # select status color
-                            if "Idle" in self.machinestatus["state"]:
-                                color = Grblbuffer.Green
-                            elif "Hold" in self.machinestatus["state"]:
-                                color = Grblbuffer.IRed
-                            elif "Run" in self.machinestatus["state"]:
-                                color = Grblbuffer.Red
-                            elif "Alarm" in self.machinestatus["state"]:
-                                color = Grblbuffer.IYellow
-                            elif "Sleep" in self.machinestatus["state"]:
-                                color = Grblbuffer.Blue
-                            elif "Door" in self.machinestatus["state"]:
-                                color = Grblbuffer.Cyan
+            if not Grblbuffer.STATUS_PAUZE:
+                with Grblbuffer.serialio_lock:
+                    # write direct command '?'
+                    self.serial.write("?".encode())
+                    #read result
+                    while not Grblbuffer.GRBLHUD_EXIT and self.serial.in_waiting:
+                        out_temp = self.serial.read_until().strip() # Wait for grbl response
+                        if out_temp.find(b"ok") < 0 and out_temp.find(b"error") < 0 :
+                            if re.search("^<.+>$", out_temp.decode('ascii')):
+                                self.update_machinestatus(out_temp.decode('ascii'))
+                                color = ''
+                                # select status color
+                                if "Idle" in self.machinestatus["state"]:
+                                    color = Grblbuffer.Green
+                                elif "Hold" in self.machinestatus["state"]:
+                                    color = Grblbuffer.IRed
+                                elif "Run" in self.machinestatus["state"]:
+                                    color = Grblbuffer.Red
+                                elif "Alarm" in self.machinestatus["state"]:
+                                    color = Grblbuffer.IYellow
+                                elif "Sleep" in self.machinestatus["state"]:
+                                    color = Grblbuffer.Blue
+                                elif "Door" in self.machinestatus["state"]:
+                                    color = Grblbuffer.Cyan
 
-                            prompt_length = len(self.format_machinestatus() + " grbl> ")
-                            self.grblinput.display_line(color + self.format_machinestatus() + Grblbuffer.EndCol + " grbl> ", prompt_length)
-                            if self.status_out:
-                                print("\r" + lineinput.Input.ERASE_TO_EOL + out_temp.decode('ascii').strip(), file=self.status_out, end = '')
-                        #else:
-                            # Ignore all else
-                            # Note that this should not happen, but sometimes, it seems, returns on direct commands are broken off
-                            #print(out_temp.decode('ascii').strip())
-                    else :
-                        # Note: ignore incomming pending ok's until counting is in balance.
-                        # this is needed at startup when the device is in 'Hold' state
-                        if self.serial_buffer_count:         # Delete the block character count corresponding to the last 'ok'
-                            self.gcode_count += 1               # Iterate g-code counter
-                            del self.serial_buffer_count[0]     # Delete the block character count corresponding to the last 'ok'
-                        print(out_temp.decode('ascii').strip())
+                                prompt_length = len(self.format_machinestatus() + " grbl> ")
+                                self.grblinput.display_line(color + self.format_machinestatus() + Grblbuffer.EndCol + " grbl> ", prompt_length)
+                                if self.status_out:
+                                    print("\r" + lineinput.Input.ERASE_TO_EOL + out_temp.decode('ascii').strip(), file=self.status_out, end = '')
+                            #else:
+                                # Ignore all else
+                                # Note that this should not happen, but sometimes, it seems, returns on direct commands are broken off
+                                #print(out_temp.decode('ascii').strip())
+                        else :
+                            # Note: ignore incomming pending ok's until counting is in balance.
+                            # this is needed at startup when the device is in 'Hold' state
+                            if self.serial_buffer_count:            # Delete the block character count corresponding to the last 'ok'
+                                self.gcode_count += 1               # Iterate g-code counter
+                                del self.serial_buffer_count[0]     # Delete the block character count corresponding to the last 'ok'
+                            print(out_temp.decode('ascii').strip())
             sleep(delay)
         print("Status report exit")
 
@@ -381,10 +385,7 @@ def main():
     while True:
 
         try:
-            #line = input('[' + str(grblbuffer.machinestatus) + "] grbl> ")
-            #line = input(grblbuffer.format_machinestatus() + " grbl> ")
             line = grblinput.line_input(grblbuffer.format_machinestatus() + " grbl> ")
-            #line = input(grblbuffer.format_machinestatus() + " grbl> ")
 
             if len(line) == 1 and ord(line) == 4:
                 with Grblbuffer.serialio_lock:
@@ -786,6 +787,9 @@ def main():
                     sleep(0.02)
                 continue
 
+            # pauze status report
+            Grblbuffer.STATUS_PAUZE = True
+
             # Need some sleep to get the command result.
             # Note that this command might be delayed
             # because other commands are pending (queued
@@ -798,6 +802,9 @@ def main():
             # get result (ok) when possible
             grblbuffer.put('', prepend = True)
             sleep(.1)
+
+            # resume status report
+            Grblbuffer.STATUS_PAUZE = False
 
         except EOFError:
             break
