@@ -22,9 +22,11 @@ class Input():
     # getch function
     unblkGetch = UnblockedGetch().getch
 
+    # lock
+    display_lock = threading.Lock()
+
     # terminal control codes:
     # https://en.wikipedia.org/wiki/ANSI_escape_code
-
     CR                  = '\x0D'        # or '/r'
     ESCAPE              = '\x1b'        # or '\033' (note \0ctal escape code, decimal value: 27)
     CSI                 = ESCAPE + '['
@@ -50,14 +52,14 @@ class Input():
         """
         (re)draw input line
         """
-        if prefix or prefix_length:
-            self.set_line_prefix(prefix, prefix_length)
+        with Input.display_lock:
+            if prefix or prefix_length:
+                self.set_line_prefix(prefix, prefix_length)
 
-        # clear the display line (CR,ED) and write the updated line from the start
-        print('\r' + Input.ERASE_TO_EOL + self.prefix + Input.line, end = '', flush = True)
-        # go to the start of the display line and set correct cursor position (CHA:'CSI <n> G').
-        #print('\r' + Input.CSI + str(Input.line_pos + len(self.prefix)) + 'G', end = '', flush = True)
-        print('\r' + Input.CSI + str(Input.line_pos + self.prefix_length) + 'G', end = '', flush = True)
+            # clear the display line (CR,ED) and write the updated line from the start
+            print('\r' + Input.ERASE_TO_EOL + self.prefix + Input.line, end = '', flush = True)
+            # go to the start of the display line and set correct cursor position (CHA:'CSI <n> G').
+            print('\r' + Input.CSI + str(Input.line_pos + self.prefix_length) + 'G', end = '', flush = True)
 
     def line_input(self, prefix = '', prefix_length = 0):
         """
@@ -143,7 +145,7 @@ class Input():
                     if len(Input.line) == Input.line_pos - 1:
                         #print("b")
                         # backspace has to clear one char, so
-                        print('\b \b', end = '', flush = True)
+                        #print('\b \b', end = '', flush = True)
 
                         # update admin (remove last char from line)
                         Input.line = Input.line[:-1]
@@ -153,8 +155,9 @@ class Input():
                         # remove char from input line, update admin
                         Input.line_pos -= 1
                         Input.line = Input.line[:Input.line_pos - 1] + Input.line[Input.line_pos:]
-                        # write updated line to display
-                        self.display_line()
+
+                    # write updated line to display
+                    self.display_line()
 
                 continue
 
@@ -164,7 +167,7 @@ class Input():
                 break
 
             # not a special key
-            if len(Input.line) == Input.line_pos:
+            if len(Input.line) == Input.line_pos - 1:
                 Input.line += c
                 print(c, end = '', flush=True)
             else:
