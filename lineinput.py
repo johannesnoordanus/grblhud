@@ -139,7 +139,6 @@ class Input():
 
             if c == Input.BACKSPACE:
                 # backspace handling
-                #print("back", Input.line_pos)
                 if Input.line_pos > 1:
                     # backspace has to clear one char, so
                     if len(Input.line) == Input.line_pos - 1:
@@ -178,9 +177,14 @@ class Input():
             # write updated line to display
             self.display_line()
 
+        line = ''
         if Input.line:
             readline.add_history(Input.line)
-        return Input.line
+            line = Input.line
+            Input.line_pos = 1
+            Input.line = ''
+
+        return line
 
 # END CLASS Input
 
