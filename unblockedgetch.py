@@ -6,6 +6,7 @@ import sys
 import tty
 import select
 import termios
+from time import sleep
 
 class UnblockedGetch:
     """
@@ -62,6 +63,7 @@ class UnblockedGetch:
                 # c = sys.stdin.buffer.raw.read(10) # Note this indeed does not block for 3 byte
                                                     # key input (<-, ->, ^, down arrow) for example.
                 break
+            sleep(.02)
 
         # clear cbreak
         self.restore_stdin_io()
