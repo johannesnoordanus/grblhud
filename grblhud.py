@@ -56,21 +56,23 @@ class Grblbuffer(threading.Thread):
         self.serial = serial
         self.status_out = status_out
 
+        # init
         self.grblinput = grblinput
+        self.init_buffer()
+        self.machinestatus = { "state" : "", "X" : 0.0, "Y" : 0.0, "Z" : 0.0, "Feed" : 0, "Speed" : 0 }
 
-        # device buffer count
+        # create and start query process
+        self.grblstatus = threading.Thread(target=self.status, args=(.1,))
+        self.grblstatus.start()
+
+    def init_buffer(self):
+        # reset device buffer count
         self.gcode_count = 0
         self.line_count = 0
         self.serial_buffer_count = []
 
         # initial buffer state: empty
         self.gcode_buffer = []
-
-        self.machinestatus = { "state" : "", "X" : 0.0, "Y" : 0.0, "Z" : 0.0, "Feed" : 0, "Speed" : 0 }
-
-        # create and start query process
-        self.grblstatus = threading.Thread(target=self.status, args=(.1,))
-        self.grblstatus.start()
 
     def update_machinestatus(self, status):
         """
@@ -436,8 +438,10 @@ def main():
                             print(ser.read_until().strip().decode('ascii'), flush = True) # read until '\n'
                             print(ser.read_until().strip().decode('ascii'), flush = True) #
 
-                        # flush input (stray 'ok's may ruin strict block counting)
+                        # flush input/output (stray 'ok's may ruin strict block counting)
                         ser.reset_input_buffer()
+                        ser.reset_output_buffer()
+                        grblbuffer.init_buffer()
                 continue
 
             if line.find("hardreset") >= 0:
