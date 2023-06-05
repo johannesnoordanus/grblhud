@@ -11,7 +11,100 @@ import readline
 from time import sleep
 # needs pyserial!
 import serial
+from inputimeout import inputimeout, TimeoutOccurred
 import lineinput
+
+# G-code error definition
+#  ID :	Error Code Description
+gc_errors = {
+    1 : "G-code words consist of a letter and a value. Letter was not found.",
+    2 : "Numeric value format is not valid or missing an expected value.",
+    3 : "Grbl '$' system command was not recognized or supported.",
+    4 : "Negative value received for an expected positive value.",
+    5 : "Homing cycle is not enabled via settings.",
+    6 : "Minimum step pulse time must be greater than 3usec",
+    7 : "EEPROM read failed. Reset and restored to default values.",
+    8 : "Grbl '$' command cannot be used unless Grbl is IDLE. Ensures smooth operation during a job.",
+    9 : "G-code locked out during alarm or jog state",
+    10 : "Soft limits cannot be enabled without homing also enabled.",
+    11 : "Max characters per line exceeded. Line was not processed and executed.",
+    12 : "(Compile Option) Grbl '$' setting value exceeds the maximum step rate supported.",
+    13 : "Safety door detected as opened and door state initiated.",
+    14 : "(Grbl-Mega Only) Build info or startup line exceeded EEPROM line length limit.",
+    15 : "Jog target exceeds machine travel. Command ignored.",
+    16 : "Jog command with no '=' or contains prohibited g-code.",
+    17 : "Laser mode requires PWM output.",
+    20 : "Unsupported or invalid g-code command found in block.",
+    21 : "More than one g-code command from same modal group found in block.",
+    22 : "Feed rate has not yet been set or is undefined.",
+    23 : "G-code command in block requires an integer value.",
+    24 : "Two G-code commands that both require the use of the XYZ axis words were detected in the block.",
+    25 : "A G-code word was repeated in the block.",
+    26 : "A G-code command implicitly or explicitly requires XYZ axis words in the block, but none were detected.",
+    27 : "N line number value is not within the valid range of 1 - 9,999,999.",
+    28 : "A G-code command was sent, but is missing some required P or L value words in the line.",
+    29 : "Grbl supports six work coordinate systems G54-G59. G59.1, G59.2, and G59.3 are not supported.",
+    30 : "The G53 G-code command requires either a G0 seek or G1 feed motion mode to be active. A different motion was active.",
+    31 : "There are unused axis words in the block and G80 motion mode cancel is active.",
+    32 : "A G2 or G3 arc was commanded but there are no XYZ axis words in the selected plane to trace the arc.",
+    33 : "The motion command has an invalid target. G2, G3, and G38.2 generates this error, if the arc is impossible to generate or if the probe target is the current position.",
+    34 : "A G2 or G3 arc, traced with the radius definition, had a mathematical error when computing the arc geometry. Try either breaking up the arc into semi-circles or quadrants, or redefine them with the arc offset definition.",
+    35 : "A G2 or G3 arc, traced with the offset definition, is missing the IJK offset word in the selected plane to trace the arc.",
+    36 : "There are unused, leftover G-code words that aren't used by any command in the block.",
+    37 : "The G43.1 dynamic tool length offset command cannot apply an offset to an axis other than its configured axis. The Grbl default axis is the Z-axis.",
+    38 : "Tool number greater than max supported value." }
+
+# G-code ALARM definition
+# ID:	Alarm Code Description
+gc_alarm = {
+    1 : "Hard limit triggered. Machine position is likely lost due to sudden and immediate halt. Re-homing is highly recommended.",
+    2 : "G-code motion target exceeds machine travel. Machine position safely retained. Alarm may be unlocked.",
+    3 : "Reset while in motion. Grbl cannot guarantee position. Lost steps are likely. Re-homing is highly recommended.",
+    4 : "Probe fail. The probe is not in the expected initial state before starting probe cycle, where G38.2 and G38.3 is not triggered and G38.4 and G38.5 is triggered.",
+    5 : "Probe fail. Probe did not contact the workpiece within the programmed travel for G38.2 and G38.4.",
+    6 : "Homing fail. Reset during active homing cycle.",
+    7 : "Homing fail. Safety door was opened during active homing cycle.",
+    8 : "Homing fail. Cycle failed to clear limit switch when pulling off. Try increasing pull-off setting or check wiring.",
+    9 : "Homing fail. Could not find limit switch within search distance. Defined as 1.5 * max_travel on search and 5 * pulloff on locate phases.",
+    10 : "Homing fail. On dual axis machines, could not find the second limit switch for self-squaring." }
+
+# G-code settings
+# $x:	Setting Description, Units
+gc_settings = {
+    0 :	"Step pulse time, microseconds",
+    1 : "Step idle delay, milliseconds",
+    2 : "Step pulse invert, mask",
+    3 : "Step direction invert, mask",
+    4 : "Invert step enable pin, boolean",
+    5 : "Invert limit pins, boolean",
+    6 : "Invert probe pin, boolean",
+    10 : "Status report options, mask",
+    11 : "Junction deviation, millimeters",
+    12 : "Arc tolerance, millimeters",
+    13 : "Report in inches, boolean",
+    20 : "Soft limits enable, boolean",
+    21 : "Hard limits enable, boolean",
+    22 : "Homing cycle enable, boolean",
+    23 : "Homing direction invert, mask",
+    24 : "Homing locate feed rate, mm/min",
+    25 : "Homing search seek rate, mm/min",
+    26 : "Homing switch debounce delay, milliseconds",
+    27 : "Homing switch pull-off distance, millimeters",
+    30 : "Maximum spindle speed, RPM",
+    31 : "Minimum spindle speed, RPM",
+    32 : "Laser-mode enable, boolean",
+    100 : "X-axis steps per millimeter",
+    101 : "Y-axis steps per millimeter",
+    102 : "Z-axis steps per millimeter",
+    110 : "X-axis maximum rate, mm/min",
+    111 : "Y-axis maximum rate, mm/min",
+    112 : "Z-axis maximum rate, mm/min",
+    120 : "X-axis acceleration, mm/sec^2",
+    121 : "Y-axis acceleration, mm/sec^2",
+    122 : "Z-axis acceleration, mm/sec^2",
+    130 : "X-axis maximum travel, millimeters",
+    131 : "Y-axis maximum travel, millimeters",
+    132 : "Z-axis maximum travel, millimeters" }
 
 # subclass of Thread
 class Grblbuffer(threading.Thread):
@@ -66,6 +159,9 @@ class Grblbuffer(threading.Thread):
         self.grblstatus.start()
 
     def init_buffer(self):
+        """
+        init buffer
+        """
         # reset device buffer count
         self.gcode_count = 0
         self.line_count = 0
@@ -122,6 +218,9 @@ class Grblbuffer(threading.Thread):
         )
 
     def grbl_count_io(self):
+        """
+        grbl io counting
+        """
         with Grblbuffer.serialio_lock:
             while not Grblbuffer.GRBLHUD_EXIT and self.serial.in_waiting:
                 #read
@@ -143,24 +242,36 @@ class Grblbuffer(threading.Thread):
                             color = Grblbuffer.Blue
                         elif "Door" in self.machinestatus["state"]:
                             color = Grblbuffer.Cyan
+                        elif "Check" in self.machinestatus["state"]:
+                            color = ''
 
-                        prompt_length = len(self.format_machinestatus() + " grbl> ")
-                        self.grblinput.display_line(color + self.format_machinestatus() + Grblbuffer.EndCol + " grbl> ", prompt_length)
+                        prompt_length = len(str(self.buffer_not_empty()) + "|" + self.format_machinestatus() + " grbl> ")
+                        self.grblinput.display_line(str(self.buffer_not_empty()) + "|" + color + self.format_machinestatus() +
+                                                    Grblbuffer.EndCol + " grbl" + color + "> " + Grblbuffer.EndCol, prompt_length)
                         if self.status_out:
                             print("\r" + lineinput.Input.ERASE_TO_EOL + out_temp.decode('ascii').strip(), file=self.status_out, end = '')
                     else:
                         # Ignore all else
                         # Note that this should not happen, but sometimes, it seems, returns on direct commands are broken off
-                        if len(out_temp.decode('ascii').strip()):
-                            print(out_temp.decode('ascii').strip())
+                        otds = out_temp.decode('ascii').strip()
+                        if len(otds):
+                            alrm = re.search("ALARM:[1-9][0-9]?",otds)
+                            if alrm and int(alrm.group()[6:]) in gc_alarm.keys():
+                                otds += " (" + gc_alarm[int(alrm.group()[6:])] + ")"
+                            print(otds)
                 else :
                     # Note: ignore incomming pending ok's until counting is in balance.
                     # this is needed at startup when the device is in 'Hold' state
                     if self.serial_buffer_count:            # Delete the block character count corresponding to the last 'ok'
                         self.gcode_count += 1               # update g-code counter
                         del self.serial_buffer_count[0]     # Delete the block character count corresponding to the last 'ok'
-                    if len(out_temp.decode('ascii').strip()):
-                        print(out_temp.decode('ascii').strip())
+                    otds = out_temp.decode('ascii').strip()
+                    if len(otds):
+                        if otds != "ok":
+                            err = re.search("error:[1-9][0-9]?",otds)
+                            if err and int(err.group()[6:]) in gc_errors.keys():
+                                otds += " (" + gc_errors[int(err.group()[6:])] + ")"
+                            print(otds)
 
     def status(self, delay):
         """
@@ -171,7 +282,6 @@ class Grblbuffer(threading.Thread):
             if not Grblbuffer.STATUS_PAUZE:
                 with Grblbuffer.serialio_lock:
                     # write direct command '?'
-                    #print("?")
                     self.serial.write("?".encode())
                 # read result
                 self.grbl_count_io()
@@ -239,8 +349,6 @@ class Grblbuffer(threading.Thread):
                 l_block = line.strip()
                 self.serial_buffer_count.append(len(l_block)+1) # Track number of characters in grbl serial read buffer
 
-        grbl_out = ''
-
         while not Grblbuffer.GRBLHUD_EXIT and ((sum(self.serial_buffer_count) >= Grblbuffer.RX_BUFFER_SIZE-1) or self.serial.in_waiting):
             self.grbl_count_io()
 
@@ -252,9 +360,35 @@ class Grblbuffer(threading.Thread):
 
 #END class Grblbuffer
 
+def count_321():
+    """
+    Countdown
+    """
+    sleep(2)
+    print("(press <enter> to abort)")
+    try:
+        stop = inputimeout(prompt = "run starts in 3 seconds ...",timeout=1)
+    except TimeoutOccurred:
+        stop = 'run'
+        try:
+            stop = inputimeout(prompt="\033[Arun starts in 2 seconds .. \r",timeout=1)
+        except TimeoutOccurred:
+            stop = 'run'
+            try:
+                stop = inputimeout(prompt="\033[Arun starts in 1 second  .  \r", timeout=1)
+            except TimeoutOccurred:
+                stop = 'run'
+
+    if stop != 'run':
+        print("\033[AAborted!                           ")
+        return False
+
+    print("\033[ARUN                                ")
+    return True
+
 def is_int(i):
     """
-    check if string is int
+    Check if string is int
     """
     try:
         int(i)
@@ -262,6 +396,31 @@ def is_int(i):
         return False
 
     return True
+
+def wait_on_line(ser):
+    """
+    Wait until '\n' 2 x
+    """
+    resp = ser.read_until().strip().decode('ascii')             # read until '\n'
+    alrm = re.search("ALARM:[1-9][0-9]?",resp)
+    if alrm and int(alrm.group()[6:]) in gc_alarm.keys():
+        resp += " (" + gc_alarm[int(alrm.group()[6:])] + ")\n"
+    resp_1 = ser.read_until().strip().decode('ascii')           # read until '\n'
+    alrm = re.search("ALARM:[1-9][0-9]?",resp_1)
+    if alrm and int(alrm.group()[6:]) in gc_alarm.keys():
+        resp_1 += " (" + gc_alarm[int(alrm.group()[6:])] + ")"
+    return resp + resp_1
+
+def wait_for_it(ser):
+    """
+    Wait for grbl response (if any)
+    """
+    print(wait_on_line(ser), flush = True)
+
+    # fallback if response is delayed
+    # (note the read timeout set in machine_open())
+    while ser.in_waiting:
+        print(wait_on_line(ser), flush = True)
 
 def machine_init(ser):
     """
@@ -272,14 +431,7 @@ def machine_init(ser):
     ser.write("\r\n\r\n".encode())
 
     # Wait for grbl to initialize and print startup text (if any)
-    print(ser.read_until().strip().decode('ascii'), flush = True)
-    print(ser.read_until().strip().decode('ascii'), flush = True)
-
-    # fallback if response is delayed
-    # (note the 2 second read timeout)
-    while ser.in_waiting:
-        print(ser.read_until().strip().decode('ascii'), flush = True) # read until '\n'
-        print(ser.read_until().strip().decode('ascii'), flush = True) #
+    wait_for_it(ser)
 
     # flush input (stray 'ok's may ruin strict block counting)
     ser.reset_input_buffer()
@@ -308,8 +460,9 @@ def machine_open(device):
             for dev in known_serial_devices:
                 print("\t" + dev)
             device = input("Enter device name: ")
-            if device: continue
-            exit()
+            if device:
+                continue
+            sys.exit()
     return ser
 
 def machine_close(ser):
@@ -380,24 +533,32 @@ def main():
             if len(line) == 1 and ord(line) == 4:
                 with Grblbuffer.serialio_lock:
                     # <Ctrl><D>
+                    Grblbuffer.STATUS_PAUZE = True
+
+                    # flush input/output
+                    ser.reset_input_buffer()
+                    ser.reset_output_buffer()
+
                     print("FULL STOP")
                     grblbuffer.serial.write(b'\x84')
 
                     # get response
-                    print(ser.read_until().strip().decode('ascii'), flush = True) # read until '\n'
-                    print(ser.read_until().strip().decode('ascii'), flush = True)
-
                     # Wait for grbl to initialize and print startup text (if any)
-                    while ser.in_waiting:
-                        print(ser.read_until().strip().decode('ascii'), flush = True) # read until '\n'
-                        print(ser.read_until().strip().decode('ascii'), flush = True) #
+                    wait_for_it(ser)
+
+                    # flush input/output
+                    ser.reset_input_buffer()
+                    ser.reset_output_buffer()
+                    grblbuffer.init_buffer()
+
+                    Grblbuffer.STATUS_PAUZE = False
                 continue
 
             if line == 'exit':
                 print("Wait for program exit ....")
                 Grblbuffer.GRBLHUD_EXIT = True
                 grblbuffer.grblstatus.join()
-		# put someting to get run loop out of waiting
+		# put something to get run loop out of waiting
                 grblbuffer.put(";")
                 grblbuffer.join()
                 break
@@ -406,13 +567,17 @@ def main():
                 print("Type one of the following commands:")
                 print("   (<Ctrl><D>)   FULL STOP                           (continue: (soft)reset)")
                 print()
+                print(" - cls                                               (clear screen)")
                 print(" - load <filename>                                   (load file to buffer)")
                 print(" - run [LOOP] <(file/loop)name> [F<eed>] [S<peed>]   (run from buffer)")
                 print(" - S+10, S+1, S-10, S-1                              (Speed up/down 10% 1%)")
                 print(" - F+10, F+1, F-10, F-1                              (Feed up/down 10% 1%)")
                 print(" - softreset                                         (Issue soft reset command)")
                 print(" - hardreset                                         (Hard reset: close/open serial port)")
-                print(" - SToggle                                           (Spindle Toggle, in 'Hold' state only)")
+                print(" - sleep                                             ($SLP command)")
+                print(" - dryrun                                            ($C check mode)")
+                print(" - Stoggle                                           (S toggle, in 'Hold' state only)")
+                print(" - setting [<nr>]                                    (get setting for specific <nr>)")
                 print(" - grbl/gcode (direct) command:")
                 print("     -- '!' feed hold, ")
                 print("     -- '~' start/resume, ")
@@ -420,28 +585,44 @@ def main():
                 print("     -- 'ctrl-x' or 'command + x' soft reset!")
                 continue
 
+            if line.find("cls") >= 0:
+                os.system('cls' if os.name == 'nt' else 'clear')
+                continue
+            if line.find("setting") >= 0:
+                set_nr = re.search("[0-9]+",line)
+                if set_nr:
+                    set_nr = set_nr.group()
+                    if int(set_nr) in gc_settings.keys():
+                        print("$" + set_nr + ": " + gc_settings[int(set_nr)])
+                    else:
+                        print("unknown setting: $" + set_nr)
+                else:
+                    for k in gc_settings.keys():
+                        print("$" + str(k) + ": " + gc_settings[k])
+                continue
             if line.find("softreset") >= 0:
                 # direct command: soft reset
                 with Grblbuffer.serialio_lock:
                     sr = input("Issue a soft reset (yes/no)? ")
                     if sr.find("yes") >= 0:
+                        Grblbuffer.STATUS_PAUZE = True
+
+                        # flush input/output
+                        ser.reset_input_buffer()
+                        ser.reset_output_buffer()
 
                         # send softreset to device
                         ser.write(b'\x18')
 
                         # get response
-                        print(ser.read_until().strip().decode('ascii'), flush = True) # read until '\n'
-                        print(ser.read_until().strip().decode('ascii'), flush = True)
-
-                        # Wait for grbl to initialize and print startup text (if any)
-                        while ser.in_waiting:
-                            print(ser.read_until().strip().decode('ascii'), flush = True) # read until '\n'
-                            print(ser.read_until().strip().decode('ascii'), flush = True) #
+                        wait_for_it(ser)
 
                         # flush input/output (stray 'ok's may ruin strict block counting)
                         ser.reset_input_buffer()
                         ser.reset_output_buffer()
                         grblbuffer.init_buffer()
+
+                        Grblbuffer.STATUS_PAUZE = False
                 continue
 
             if line.find("hardreset") >= 0:
@@ -475,23 +656,37 @@ def main():
 
                 continue
 
-            if line == "SToggle":
+            if line == "Stoggle":
                 with Grblbuffer.serialio_lock:
+                    Grblbuffer.STATUS_PAUZE = True
                     # check machine state
                     if grblbuffer.machinestatus["state"] != "Hold":
                         print("machinestate must be 'Hold' to toggle Spindle")
-                        continue
-                    print("Spindle On/Off ")
-                    grblbuffer.serial.write(b'\x9E') # 0x9E:ToggleSpindleStop
+                    else:
+                        print("Spindle On/Off ")
+                        grblbuffer.serial.write(b'\x9E') # 0x9E:ToggleSpindleStop
 
-                    # get response
-                    print(ser.read_until().strip().decode('ascii'), flush = True) # read until '\n'
-                    print(ser.read_until().strip().decode('ascii'), flush = True)
+                        # get response
+                        wait_for_it(ser)
+                    Grblbuffer.STATUS_PAUZE = False
+                continue
 
-                    # Wait for grbl to initialize and print startup text (if any)
-                    while ser.in_waiting:
-                        print(ser.read_until().strip().decode('ascii'), flush = True) # read until '\n'
-                        print(ser.read_until().strip().decode('ascii'), flush = True) #
+            if line == "sleep":
+                if grblbuffer.machinestatus["state"] != "Idle":
+                    print("machinestate must be 'Idle' to be able to sleep")
+                else:
+                    with Grblbuffer.serialio_lock:
+                        print("Sleep 'zzzzz' ")
+                        grblbuffer.serial.write("$SLP\n".encode())     # $SLP: zzzz
+                continue
+
+            if line == "dryrun":
+                with Grblbuffer.serialio_lock:
+                    if grblbuffer.machinestatus["state"] != "Check":
+                        print("Commands run Dry Run mode now (issue command again to toggle)")
+                    else:
+                        print("Commands run for REAL now (issue command again to taggle)")
+                    grblbuffer.serial.write("$C\n".encode())       # $C: G-Code Check mode
                 continue
 
             if re.search("^load +[^<>:;,*|\"]+$", line):
@@ -551,7 +746,8 @@ def main():
                                             # clear buffer/loop info
                                             gcodeFile = { "name" : "", "bBox" : "", "buffer" : [], "WHILE" : {} }
                                             overlap = True
-                                    if overlap: break
+                                    if overlap:
+                                        break
                                 else:
                                     print("WHILE info isn't consistent: cannot find WHILE label '" + do_loopname + "'!, abort load." )
                                     # clear buffer/loop info
@@ -567,7 +763,7 @@ def main():
                             print("Detected the following loop(s):")
                             for loop in gcodeFile['WHILE']:
                                 # {'pcstart': 13, 'pcend': 16, 'count': 2}
-                                print("    " + loop + ": ", gcodeFile['WHILE'][loop]['count'], "X [", gcodeFile['WHILE'][loop]['pcstart'],
+                                print("    " + loop + ": ", gcodeFile['WHILE'][loop]['count'], " X [", gcodeFile['WHILE'][loop]['pcstart'],
                                       "]-[", gcodeFile['WHILE'][loop]['pcend'], "]", sep = '')
                             print("    (Note that loops can be run separately using 'run LOOP <loopname> [F<feed>] [S<speed>]')\n")
 
@@ -592,12 +788,12 @@ def main():
 
                     if feed:
                         feed = feed.group()[1:]
-                        FS_update = "Feed set to " + feed
+                        FS_update = feed
                         # remove F<nr> from line
                         line = re.sub(" F[0-9]+", "", line)
                     if speed:
                         speed = speed.group()[1:]
-                        FS_update = "Speed set to " + speed if FS_update == '' else  "Feed set to " + feed + ", Speed set to " + speed
+                        FS_update = speed if FS_update == '' else FS_update + " " + speed
                         # remove S<nr> from line
                         line = re.sub(" S[0-9]+", "", line)
 
@@ -625,32 +821,30 @@ def main():
                                 print("Invalid loop count must be > 0:", count)
                                 continue
 
-                            print("Run loop", loopname, count, "times", FS_update, gcodeFile["bBox"])
-                            yesorno = input("Are you sure (checked bbox, Feed, Spindle rate and set M3/M4)? (yes/no) ")
-                            if "yes" in yesorno:
-                                print("run starts in 3 seconds .", end = '', flush = True)
-                                sleep(1)
-                                print("\rrun starts in 2 seconds ..", end = '', flush = True)
-                                sleep(1)
-                                print("\rrun starts in 1 seconds ...", end = '', flush = True)
-                                sleep(1)
-                                print(" run")
+                            print("Run loop '" + loopname + "'", count, "X,", FS_update + ",", gcodeFile["bBox"])
+                            if not count_321():
+                                # abort
+                                continue
 
-                                # unroll loop(s);
-                                for loopcount in range(int(count)):
-                                    grblbuffer.put("; " + loopname + " iterate nr: " + str(loopcount + 1))
-                                    print("<  >\t", "; " + loopname + " iterate nr: " + str(loopcount + 1))
-                                    for li in range(gcodeFile["WHILE"][loopname]["pcstart"], gcodeFile["WHILE"][loopname]["pcend"] + 1):
-                                        gcline = gcodeFile["buffer"][li]
-                                        if feed:
-                                            # replace F<nr> in this line of code (if any)
-                                            gcline = re.sub("F[0-9]+", feed, gcline)
-                                        if speed:
-                                            # replace S<nr> in this line of code (if any)
-                                            gcline = re.sub("S[0-9]+", speed, gcline)
+                            if FS_update:
+                                # make sure F and S are set correctly (before loop start)
+                                grblbuffer.put("M4 " + FS_update)
+                                print("<  >\t", "M4 " + FS_update)
+                            # unroll loop(s);
+                            for loopcount in range(int(count)):
+                                grblbuffer.put("; " + loopname + " iterate nr: " + str(loopcount + 1))
+                                print("<  >\t", "; " + loopname + " iterate nr: " + str(loopcount + 1))
+                                for li in range(gcodeFile["WHILE"][loopname]["pcstart"], gcodeFile["WHILE"][loopname]["pcend"] + 1):
+                                    gcline = gcodeFile["buffer"][li]
+                                    if feed:
+                                        # replace F<nr> in this line of code (if any)
+                                        gcline = re.sub("F[0-9]+", feed, gcline)
+                                    if speed:
+                                        # replace S<nr> in this line of code (if any)
+                                        gcline = re.sub("S[0-9]+", speed, gcline)
 
-                                        grblbuffer.put(gcline)
-                                        print("<" + str(li) + ">\t", gcline, end = '')
+                                    grblbuffer.put(gcline)
+                                    print("<" + str(li) + ">\t", gcline, end = '')
                     else:
                         print("cannot find loop with label '" + loopname + "'")
                     continue
@@ -660,56 +854,50 @@ def main():
                 if fileName == gcodeFile["name"]:
                     with Grblbuffer.serialio_lock:
                         print("Run", fileName, FS_update, gcodeFile["bBox"])
-                        yesorno = input("Are you sure (checked bbox)? (yes/no) ")
-                        if "yes" in yesorno:
-                            print("run starts in 3 seconds .", end = '', flush = True)
-                            sleep(1)
-                            print("\rrun starts in 2 seconds ..", end = '', flush = True)
-                            sleep(1)
-                            print("\rrun starts in 1 seconds ...", end = '', flush = True)
-                            sleep(1)
-                            print(" run")
+                        if not count_321():
+                            # abort
+                            continue
 
-                            # unroll loop(s);
-                            # get while loop info
-                            for i, line in enumerate(gcodeFile["buffer"]):
-                                # put gcode block, substitute set 'speed' and 'feed'
-                                if feed:
-                                    # replace F<nr> in this line of code (if any)
-                                    line = re.sub("F[0-9]+", feed, line)
+                        # unroll loop(s);
+                        # get while loop info
+                        for i, line in enumerate(gcodeFile["buffer"]):
+                            # put gcode block, substitute set 'speed' and 'feed'
+                            if feed:
+                                # replace F<nr> in this line of code (if any)
+                                line = re.sub("F[0-9]+", feed, line)
 
-                                if speed:
-                                    # replace S<nr> in this line of code (if any)
-                                    line = re.sub("S[0-9]+", speed, line)
+                            if speed:
+                                # replace S<nr> in this line of code (if any)
+                                line = re.sub("S[0-9]+", speed, line)
 
-                                grblbuffer.put(line)
-                                print("<" + str(i) + ">\t", line, end = '')
+                            grblbuffer.put(line)
+                            print("<" + str(i) + ">\t", line, end = '')
 
-                                #find DO's get information from label and repeat code
-                                if line.find("; DO") >= 0:
-                                    # do format: '; DO <loopname>' example: '; DO Aloop123'
-                                    do_loopname = line[re.search(" [a-z]+[0-9]*",line).start() + 1:].strip()
-                                    # find corresponding 'WHILE' and get loop start and end address
-                                    if do_loopname in gcodeFile["WHILE"]:
-                                        for loopcount in range(gcodeFile["WHILE"][do_loopname]["count"]):
-                                            grblbuffer.put("; " + do_loopname + " iterate nr: " + str(loopcount + 1))
-                                            print("[" + str(i) + "]\t", "; " + do_loopname + " iterate nr: " + str(loopcount + 1))
-                                            for li in range(gcodeFile["WHILE"][do_loopname]["pcstart"], gcodeFile["WHILE"][do_loopname]["pcend"] + 1):
-                                                gcline = gcodeFile["buffer"][li]
+                            #find DO's get information from label and repeat code
+                            if line.find("; DO") >= 0:
+                                # do format: '; DO <loopname>' example: '; DO Aloop123'
+                                do_loopname = line[re.search(" [a-z]+[0-9]*",line).start() + 1:].strip()
+                                # find corresponding 'WHILE' and get loop start and end address
+                                if do_loopname in gcodeFile["WHILE"]:
+                                    for loopcount in range(gcodeFile["WHILE"][do_loopname]["count"]):
+                                        grblbuffer.put("; " + do_loopname + " iterate nr: " + str(loopcount + 1))
+                                        print("[" + str(i) + "]\t", "; " + do_loopname + " iterate nr: " + str(loopcount + 1))
+                                        for li in range(gcodeFile["WHILE"][do_loopname]["pcstart"], gcodeFile["WHILE"][do_loopname]["pcend"] + 1):
+                                            gcline = gcodeFile["buffer"][li]
 
-                                                if feed:
-                                                    # replace F<nr> in this line of code (if any)
-                                                    gcline = re.sub("F[0-9]+", feed, gcline)
+                                            if feed:
+                                                # replace F<nr> in this line of code (if any)
+                                                gcline = re.sub("F[0-9]+", feed, gcline)
 
-                                                if speed:
-                                                    # replace S<nr> in this line of code (if any)
-                                                    gcline = re.sub("S[0-9]+", speed, gcline)
+                                            if speed:
+                                                # replace S<nr> in this line of code (if any)
+                                                gcline = re.sub("S[0-9]+", speed, gcline)
 
-                                                grblbuffer.put(gcline)
-                                                print("<" + str(li) + ">\t", gcline, end = '')
-                                    else:
-                                        print("WHILE info isn't consistent: cannot find WHILE label '" + do_loopname + "', Abort run!")
-                                        break
+                                            grblbuffer.put(gcline)
+                                            print("<" + str(li) + ">\t", gcline, end = '')
+                                else:
+                                    print("WHILE info isn't consistent: cannot find WHILE label '" + do_loopname + "', Abort run!")
+                                    break
                     continue
 
                 print("Run error: memory buffer contains ", end='')
@@ -817,7 +1005,8 @@ def main():
 
     # close serial port, status terminal
     machine_close(grblbuffer.serial)
-    if terminal: terminal.close()
+    if terminal:
+        terminal.close()
 
 #
 #
