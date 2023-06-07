@@ -530,7 +530,7 @@ def main():
         try:
             line = grblinput.line_input(grblbuffer.format_machinestatus() + " grbl> ")
 
-            if len(line) == 1 and ord(line) == 4:
+            if (len(line) == 1 and ord(line) == 4) or line == 'FSTOP':
                 with Grblbuffer.serialio_lock:
                     # <Ctrl><D>
                     Grblbuffer.STATUS_PAUZE = True
@@ -565,13 +565,14 @@ def main():
 
             if line.find("help") >= 0:
                 print("Type one of the following commands:")
-                print("   (<Ctrl><D>)   FULL STOP                           (continue: (soft)reset)")
+                print("   (<Ctrl><D>) or FSTOP                              (FULL STOP to continue: softreset)")
                 print()
                 print(" - cls                                               (clear screen)")
                 print(" - load <filename>                                   (load file to buffer)")
                 print(" - run [LOOP] <(file/loop)name> [F<eed>] [S<peed>]   (run from buffer)")
                 print(" - S+10, S+1, S-10, S-1                              (Speed up/down 10% 1%)")
                 print(" - F+10, F+1, F-10, F-1                              (Feed up/down 10% 1%)")
+                print(" - softstop                                          (purge command buffer, but let machine buffer run till empty)")
                 print(" - softreset                                         (Issue soft reset command)")
                 print(" - hardreset                                         (Hard reset: close/open serial port)")
                 print(" - sleep                                             ($SLP command)")
@@ -583,6 +584,7 @@ def main():
                 print("     -- '~' start/resume, ")
                 print("     -- '?' status, ")
                 print("     -- 'ctrl-x' or 'command + x' soft reset!")
+                print()
                 continue
 
             if line.find("cls") >= 0:
@@ -600,6 +602,15 @@ def main():
                     for k in gc_settings.keys():
                         print("$" + str(k) + ": " + gc_settings[k])
                 continue
+
+            if line == 'softstop':
+                with Grblbuffer.serialio_lock:
+                    with Grblbuffer.bec:
+                        print("Issued softstop (purged command buffer)")
+                        # purge buffer
+                        grblbuffer.init_buffer()
+                continue
+
             if line.find("softreset") >= 0:
                 # direct command: soft reset
                 with Grblbuffer.serialio_lock:
@@ -699,9 +710,10 @@ def main():
                     with open(filePath, "r") as f:
                         gcodeFile = { "name" : "", "bBox" : "", "buffer" : [], "WHILE" : {} }
                         gcodeFile["name"] = os.path.basename(filePath)
+                        abort = False
                         # do not do that gcodeFile["buffer"].append('; ' + gcodeFile["name"])
                         print("Loading file", gcodeFile["name"], "into memory buffer ...\n")
-                        #for line in f:
+                        # for line in f:
                         for i, line in enumerate(f):
                             print("[" + str(i) + "]\t", line, end = '')
                             # get bbox if any
@@ -728,44 +740,61 @@ def main():
                             if line.find("; WHILE") >= 0:
                                 # WHILE format: '; WHILE <int> <loopname>' example: '; WHILE 23 Aloop123'
                                 # save buffer start index for this while (should be a loop name)
-                                while_loopname = line[re.search(" [a-z]+[0-9]*",line).start() + 1:].strip()
-                                while_count = int(line[re.search(" [0-9]+",line).start() + 1:re.search(" [0-9]+",line).end()])
+                                while_loopname = re.search(" [a-z]+[0-9]*",line)
+                                if not while_loopname:
+                                    print("Missing loopname of '; WHILE' statement, abort load!")
+                                    abort = True
+                                    break
+                                while_loopname = while_loopname.group()[1:]
+                                while_count = re.search(" [0-9]+",line)
+                                if not while_count:
+                                    print("Missing loop count of '; WHILE' statement, abort load!")
+                                    abort = True
+                                    break
+                                while_count = int(while_count.group()[1:])
                                 gcodeFile["WHILE"][while_loopname] = {"pcstart" : i+1, "pcend" : 0, "count" : while_count }
                             elif line.find("; DO") >= 0:
                                 # do format: '; DO <loopname>' example: '; DO Aloop123'
-                                do_loopname = line[re.search(" [a-z]+[0-9]*",line).start() + 1:].strip()
+                                do_loopname = re.search(" [a-z]+[0-9]*",line)
+                                if not do_loopname:
+                                    print("Missing loopname of '; DO' statement, abort load!")
+                                    abort = True
+                                    break
+                                do_loopname = do_loopname.group()[1:]
                                 # find corresponding 'WHILE DO' save buffer 'end' index for this
                                 if do_loopname in gcodeFile["WHILE"]:
                                     gcodeFile["WHILE"][do_loopname]["pcend"] = i-1
                                     # check loop overlap
-                                    overlap = False
                                     for loop in gcodeFile['WHILE']:
                                         if gcodeFile['WHILE'][loop]['pcend'] == 0 and \
                                            gcodeFile['WHILE'][loop]['pcstart'] > gcodeFile["WHILE"][do_loopname]["pcstart"]:
                                             print("WHILE loops '" + loop + "' and '" + do_loopname + "' overlap!, abort load.")
                                             # clear buffer/loop info
                                             gcodeFile = { "name" : "", "bBox" : "", "buffer" : [], "WHILE" : {} }
-                                            overlap = True
-                                    if overlap:
+                                            abort = True
+                                            break
+                                    if abort:
                                         break
                                 else:
-                                    print("WHILE info isn't consistent: cannot find WHILE label '" + do_loopname + "'!, abort load." )
+                                    print("WHILE info isn't consistent: cannot find WHILE label '" + do_loopname + "'!, abort load!" )
                                     # clear buffer/loop info
                                     gcodeFile = { "name" : "", "bBox" : "", "buffer" : [], "WHILE" : {} }
+                                    abort = True
                                     break
 
                             gcodeFile["buffer"].append(line)
 
-                        # give load summary
-                        if len(gcodeFile["buffer"]) > 0:
-                            print("\nFile loaded", len(gcodeFile["buffer"]) - 1, "lines", gcodeFile["bBox"])
-                        if gcodeFile["WHILE"]:
-                            print("Detected the following loop(s):")
-                            for loop in gcodeFile['WHILE']:
-                                # {'pcstart': 13, 'pcend': 16, 'count': 2}
-                                print("    " + loop + ": ", gcodeFile['WHILE'][loop]['count'], " X [", gcodeFile['WHILE'][loop]['pcstart'],
-                                      "]-[", gcodeFile['WHILE'][loop]['pcend'], "]", sep = '')
-                            print("    (Note that loops can be run separately using 'run LOOP <loopname> [F<feed>] [S<speed>]')\n")
+                        if not abort:
+                            # give load summary
+                            if len(gcodeFile["buffer"]) > 0:
+                                print("\nFile loaded", len(gcodeFile["buffer"]) - 1, "lines", gcodeFile["bBox"])
+                            if gcodeFile["WHILE"]:
+                                print("Detected the following loop(s):")
+                                for loop in gcodeFile['WHILE']:
+                                    # {'pcstart': 13, 'pcend': 16, 'count': 2}
+                                    print("    " + loop + ": ", gcodeFile['WHILE'][loop]['count'], " X [", gcodeFile['WHILE'][loop]['pcstart'],
+                                          "]-[", gcodeFile['WHILE'][loop]['pcend'], "]", sep = '')
+                                print("    (Note that loops can be run separately using 'run LOOP <loopname> [F<feed>] [S<speed>]')\n")
 
                 except OSError:
                     print("could not open file:", filePath)
@@ -774,7 +803,7 @@ def main():
             if re.search("^run +[^<>:;,*|\"]+$", line):
                 # run file: 'run [LOOP] <(file)name> [F<eed>] [S<peed>]'
                 if grblbuffer.machinestatus["state"] != "Idle":
-                    print("machinestate must be 'Idle' to run a file")
+                    print("Machinestate must be 'Idle' to run a file")
                     continue
 
                 FS_update = ''
@@ -801,10 +830,9 @@ def main():
                     # run loop
                     loopname = re.search(" [a-z]+[0-9]*",line)
                     if not loopname:
-                        print("No loopname given!")
+                        print("No 'LOOP' name given; abort run!")
                         continue
-
-                    loopname = line[re.search(" [a-z]+[0-9]*",line).start() + 1:].strip()
+                    loopname = loopname.group()[1:]
 
                     if loopname in gcodeFile["WHILE"]:
                         with Grblbuffer.serialio_lock:
@@ -846,7 +874,7 @@ def main():
                                     grblbuffer.put(gcline)
                                     print("<" + str(li) + ">\t", gcline, end = '')
                     else:
-                        print("cannot find loop with label '" + loopname + "'")
+                        print("Cannot find loop with label '" + loopname + "', abort run!")
                     continue
 
                 filePath = line[line.find(' ') + 1:]
@@ -876,7 +904,11 @@ def main():
                             #find DO's get information from label and repeat code
                             if line.find("; DO") >= 0:
                                 # do format: '; DO <loopname>' example: '; DO Aloop123'
-                                do_loopname = line[re.search(" [a-z]+[0-9]*",line).start() + 1:].strip()
+                                do_loopname = re.search(" [a-z]+[0-9]*",line)
+                                if not do_loopname:
+                                    print("No 'DO' loopname given; abort run!")
+                                    break
+                                do_loopname = do_loopname.group()[1:]
                                 # find corresponding 'WHILE' and get loop start and end address
                                 if do_loopname in gcodeFile["WHILE"]:
                                     for loopcount in range(gcodeFile["WHILE"][do_loopname]["count"]):
