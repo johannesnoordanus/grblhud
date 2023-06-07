@@ -65,13 +65,14 @@ Start command queue
 [     XYZ:00.000,00.000,00.000 FS:0,0] grbl> Grbl 1.1h ['$' for help]
 0|[Idle XYZ:00.000,00.000,00.000 FS:0,0] grbl> help
 Type one of the following commands:
-   (<Ctrl><D>)   FULL STOP                           (continue: (soft)reset)
+   (<Ctrl><D>) or FSTOP                              (FULL STOP to continue: softreset)
 
  - cls                                               (clear screen)
  - load <filename>                                   (load file to buffer)
  - run [LOOP] <(file/loop)name> [F<eed>] [S<peed>]   (run from buffer)
  - S+10, S+1, S-10, S-1                              (Speed up/down 10% 1%)
  - F+10, F+1, F-10, F-1                              (Feed up/down 10% 1%)
+ - softstop                                          (purge command buffer, but let machine buffer run till empty)
  - softreset                                         (Issue soft reset command)
  - hardreset                                         (Hard reset: close/open serial port)
  - sleep                                             ($SLP command)
