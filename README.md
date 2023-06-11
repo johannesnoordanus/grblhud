@@ -36,7 +36,7 @@ Note that image2gcode and svg2gcode can be used to convert images and vector gra
 ### Installation note:
 ``` 
 	- pyserial must be installed first ('pip install pyserial')
-    - inputimeout must be installed ('pip install inputimeout')
+	- inputimeout must be installed ('pip install inputimeout')
 	- pip install grblhud
 
 	To install additional tools:
