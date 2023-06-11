@@ -13,7 +13,9 @@ Grblhub is tested on several platforms - arm64/intel - and operating systems - L
 
 Information on grbl commands: https://github.com/gnea/grbl/blob/master/doc/markdown/commands.md
 
-WHILE DO syntax:
+Note that image2gcode and svg2gcode can be used to convert images and vector graphics to gcode at the highest quality. gcode2image can be used to validate these conversions and verify the layout before using grblhud to send the code to your lasercutter or cnc machine. https://github.com/johannesnoordanus?tab=repositories
+
+### WHILE DO syntax:
 ```
     # Gcode:
     #    #100 = 1
@@ -31,15 +33,18 @@ WHILE DO syntax:
     # Note also that loopnames are all lowercase! And have a number (if any) at the end:
     # in regex '[a-z]+[0-9]*'
 ```
-Installation note:
+### Installation note:
 ``` 
-    - pyserial must be installed first ('pip install pyserial')
+	- pyserial must be installed first ('pip install pyserial')
     - inputimeout must be installed ('pip install inputimeout')
-    - lineinput.py and unblockedgetch.py must be in the same directory (as grblhud.py) or in python path
-    - run 'python3 grblhud.py' or 'chmod u+x grblhud.py' (once) and './grblhud.py' to execute.
-      (when in $PATH, 'grblhud.py' suffice)
+	- pip install grblhud
+
+	To install additional tools:
+	- pip install image2gcode
+	- pip install svg2gcode
+	- pip install gcode2image 
 ```
-Grblhud help:
+### Grblhud help:
 ```
     $ ./grblhud.py --help
     usage: grblhud.py [-h] [--serialdevice /dev/<serial-tty-name>] [--status /dev/<terminal-tty-name>]
@@ -53,7 +58,7 @@ Grblhud help:
       --status /dev/<terminal-tty-name>, -s /dev/<terminal-tty-name>
                             grbl status output (default: no output)
 ```
-Example run:
+### Example run:
 ```
 >
 > grblhud
