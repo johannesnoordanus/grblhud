@@ -60,17 +60,16 @@ Note that image2gcode and svg2gcode can be used to convert images and vector gra
 ```
 ### Example run:
 ```
->
-> grblhud
+[somedir]$ grblhud
 Opened serial port /dev/ttyUSB0 at 115200 bauds (bits/s)
 Initializing grbl...
-
-Status report every 0.1 seconds
+okok
+okok
+Status report every 0.1 seconds (WPos coordinates)
 Start command queue
-[     XYZ:00.000,00.000,00.000 FS:0,0] grbl> Grbl 1.1h ['$' for help]
-0|[Idle XYZ:00.000,00.000,00.000 FS:0,0] grbl> help
-Type one of the following commands:
-   (<Ctrl><D>) or FSTOP                              (FULL STOP to continue: softreset)
+0|[Idle XYZ:-5.000,00.000,00.000 FS:0,0] grbl> help
+grblhud commands:
+   (<Ctrl><D>) or FSTOP                              (FULL STOP, issue softreset to continue)
 
  - cls                                               (clear screen)
  - load <filename>                                   (load file to buffer)
@@ -78,16 +77,29 @@ Type one of the following commands:
  - S+10, S+1, S-10, S-1                              (Speed up/down 10% 1%)
  - F+10, F+1, F-10, F-1                              (Feed up/down 10% 1%)
  - softstop                                          (purge command buffer, but let machine buffer run till empty)
- - softreset                                         (Issue soft reset command)
- - hardreset                                         (Hard reset: close/open serial port)
+ - softreset                                         (issue soft reset command)
+ - hardreset                                         (hard reset: close/open serial port)
  - sleep                                             ($SLP command)
- - dryrun                                            ($C check mode)
- - Stoggle                                           (S toggle, in 'Hold' state only)
- - setting [<nr>]                                    (get setting for specific <nr>)
- - grbl/gcode (direct) command:
-     -- '!' feed hold, 
-     -- '~' start/resume, 
-     -- '?' status, 
-     -- 'ctrl-x' or 'command + x' soft reset!
-0|[Idle XYZ:00.000,00.000,00.000 FS:0,0] grbl> 
+ - Zprobe                                            (lower head until 'probe' contact is made)
+ - Zorigin <coord>                                   (make 'probe' point the new Z<coord>)
+ - Stoggle                                           (Spindle on/off, in 'Hold' state only)
+
+grbl commands:
+ - $ (grbl help)
+     $$ (view Grbl settings)
+     $# (view # parameters)
+     $G (view parser state)
+     $I (view build info)
+     $N (view startup blocks)
+     $x=value (save Grbl setting)
+     $Nx=line (save startup block)
+     $C (check gcode mode)
+     $X (kill alarm lock)
+     $H (run homing cycle)
+     ~ (cycle start)
+     ! (feed hold)
+     ? (current status)
+     ctrl-x/command + x/softreset (reset Grbl)
+
+0|[Idle XYZ:-5.000,00.000,00.000 FS:0,0] grbl> exit
 ```
