@@ -11,6 +11,7 @@ import serial
 from grblhud import lineinput
 from grblhud.grblmessages import grbl_errors
 from grblhud.grblmessages import grbl_alarm
+from grblhud.grblmessages import grbl_settings
 
 # subclass of Thread
 class Grblbuffer(threading.Thread):
@@ -58,7 +59,11 @@ class Grblbuffer(threading.Thread):
         # init
         self.grblinput = grblinput
         self.init_buffer()
+        self.WCO = {"X" : 0.0, "Y" : 0.0, "Z" : 0.0}
         self.machinestatus = { "state" : "", "X" : 0.0, "Y" : 0.0, "Z" : 0.0, "Feed" : 0, "Speed" : 0 }
+
+        # status report
+        self.status_plain = False
 
         # create and start query process
         self.grblstatus = threading.Thread(target=self.status, args=(.1,))
@@ -83,25 +88,63 @@ class Grblbuffer(threading.Thread):
         if status != '':
             # Sample status report:
             #   <Idle|MPos:0.000,0.000,-10.000|FS:0,0>
-            # Note that this format should be part of the grbl specification.)
-            self.machinestatus = {"state" : "Error", "X" : -1.0, "Y" : -1.0, "Z" : -1.0, "Feed" : "-1", "Speed" : "-1" }
+            #   <Idle|MPos:-2.996,-2.996,0.000|Bf:15,126|FS:0,0|WCO:0.000,0.000,0.000>
+            # Note that 'Real-time Status Reports' are specified here:
+            # 'https://github.com/gnea/grbl/wiki/Grbl-v1.1-Interface'
+            self.machinestatus = {"state" : "Error", "X" : -1.0, "Y" : -1.0, "Z" : -1.0, "Feed" : "-1", "Speed" : "-1"}
 
             #state = re.search("^<[a-zA-Z]+",status)
             state = re.search("<[a-zA-Z]+",status)
             if state:
                 self.machinestatus["state"] = state.group(0)[1:]
 
-            mpos = re.search("MPos:[+\-]?[0-9.,+\-]+\|",status)
+            # Get WCO (Work Coordinate Offset)
+            # GRBL documentation:
+            #    GUI Developers: Simply track and retain the last WCO: vector and use the below equation to compute the
+            #    other position vector for your position readouts. If Grbl's status reports show either WPos or MPos,
+            #    just follow the equations below. It's as easy as that!
+            wco = re.search("WCO:[+\-]?[0-9.,+\-]+[\|>]",status)
+            if wco:
+                wco_X = re.search("[+-]?[0-9.+\-]+", wco.group(0))
+                if wco_X:
+                    self.WCO["X"] = float(wco_X.group(0))
+                wco_Y = re.search(",[+-]?[0-9.+\-]+", wco.group(0))
+                if wco_Y:
+                    self.WCO["Y"] = float(wco_Y.group(0)[1:])
+                wco_Z = re.search(",[+-]?[0-9.+\-]+[\|>]", wco.group(0))
+                if wco_Z:
+                    self.WCO["Z"] = float(wco_Z.group(0)[1:-1])
+
+            # always report WPos coordinates
+            mpos = re.search("MPos:[+\-]?[0-9.,+\-]+[\|>]",status)
             if mpos:
+                # * If MPos: is given, use WPos = MPos - WCO.
                 X = re.search("[+-]?[0-9.+\-]+", mpos.group(0))
                 if X:
-                    self.machinestatus["X"] = float(X.group(0))
+                    self.machinestatus["X"] = float(X.group(0)) - self.WCO["X"]
                 Y = re.search(",[+-]?[0-9.+\-]+", mpos.group(0))
                 if Y:
-                    self.machinestatus["Y"] = float(Y.group(0)[1:])
-                Z = re.search(",[+-]?[0-9.+\-]+\|", mpos.group(0))
+                    self.machinestatus["Y"] = float(Y.group(0)[1:]) - self.WCO["Y"]
+                Z = re.search(",[+-]?[0-9.+\-]+[\|>]", mpos.group(0))
                 if Z:
-                    self.machinestatus["Z"] = float(Z.group(0)[1:-1])
+                    self.machinestatus["Z"] = float(Z.group(0)[1:-1]) - self.WCO["Z"]
+            else:
+                wpos = re.search("WPos:[+\-]?[0-9.,+\-]+[\|>]",status)
+                if wpos:
+                    # always report WPos coordinates
+                    # ( * If WPos: is given, use MPos = WPos + WCO.)
+                    X = re.search("[+-]?[0-9.+\-]+", wpos.group(0))
+                    if X:
+                        # self.machinestatus["X"] = float(X.group(0)) + self.WCO["X"]
+                        self.machinestatus["X"] = float(X.group(0))
+                    Y = re.search(",[+-]?[0-9.+\-]+", wpos.group(0))
+                    if Y:
+                        # self.machinestatus["Y"] = float(Y.group(0)[1:]) + self.WCO["Y"]
+                        self.machinestatus["Y"] = float(Y.group(0)[1:])
+                    Z = re.search(",[+-]?[0-9.+\-]+[\|>]", wpos.group(0))
+                    if Z:
+                        #self.machinestatus["Z"] = float(Z.group(0)[1:-1]) + self.WCO["Z"]
+                        self.machinestatus["Z"] = float(Z.group(0)[1:-1])
 
             fs = re.search("FS:[0-9,]+",status)
             if fs:
@@ -154,6 +197,12 @@ class Grblbuffer(threading.Thread):
                         prompt_length = len(str(self.buffer_not_empty()) + "|" + self.format_machinestatus() + " grbl> ")
                         self.grblinput.display_line(str(self.buffer_not_empty()) + "|" + color + self.format_machinestatus() +
                                                     Grblbuffer.EndCol + " grbl" + color + "> " + Grblbuffer.EndCol, prompt_length)
+
+                        if self.status_plain:
+                            # toggle it
+                            self.status_plain = False
+                            print(out_temp.decode('ascii'), flush=True)
+
                         if self.status_out:
                             print("\r" + lineinput.Input.ERASE_TO_EOL + out_temp.decode('ascii').strip(), file=self.status_out, end = '')
                     else:
@@ -164,8 +213,18 @@ class Grblbuffer(threading.Thread):
                             alrm = re.search("ALARM:[1-9][0-9]?",otds)
                             if alrm and int(alrm.group()[6:]) in grbl_alarm.keys():
                                 otds += " (" + grbl_alarm[int(alrm.group()[6:])] + ")"
+                            else:
+                                # add meaning to settings
+                                # $1=25
+                                setting = re.search("^\$[0-9]+=[0-9]+(\.[0-9]+)?",otds)
+                                if setting:
+                                    setting = re.search("^\$[0-9]+",setting.group())
+                                    if setting and int(setting.group()[1:]) in grbl_settings.keys():
+
+                                        #otds += (" " * ((25 > len(otds)) ? (25 - len(otds)) : 1 )) + (" + grbl_settings[int(setting.group()[1:])] + ")"
+                                        otds += " " * ((25 - len(otds)) if len(otds) < 25 else 1)  + "(" + grbl_settings[int(setting.group()[1:])] + ")"
                             print(otds)
-                else :
+                else:
                     # Note: ignore incomming pending ok's until counting is in balance.
                     # this is needed at startup when the device is in 'Hold' state
                     if self.serial_buffer_count:            # Delete the block character count corresponding to the last 'ok'
@@ -183,7 +242,7 @@ class Grblbuffer(threading.Thread):
         """
         write status request to grbl device and get response
         """
-        print("Status report every", delay, "seconds")
+        print("Status report every", delay, "seconds (WPos coordinates)")
         while not Grblbuffer.GRBLHUD_EXIT:
             if not Grblbuffer.STATUS_PAUZE:
                 with Grblbuffer.serialio_lock:
@@ -263,5 +322,3 @@ class Grblbuffer(threading.Thread):
                 # check for special characters not needing a nl
                 l_blockn = l_block + '\n'
                 self.serial.write(l_blockn.encode()) # Send g-code block to grbl
-
-
