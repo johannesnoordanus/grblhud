@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 grblhub: a command line tool to handle grbl code.
+(https://www.diymachining.com/downloads/GRBL_Settings_Pocket_Guide_Rev_B.pdf)
 """
 
 import os
@@ -13,7 +14,6 @@ from inputimeout import inputimeout, TimeoutOccurred
 from grblhud import lineinput
 from grblhud.grblbuffer import Grblbuffer
 from grblhud.grblmessages import grbl_alarm
-from grblhud.grblmessages import grbl_settings
 
 def count_321():
     """
@@ -188,8 +188,8 @@ def grblhudloop(args):
                 break
 
             if line.find("help") >= 0:
-                print("Type one of the following commands:")
-                print("   (<Ctrl><D>) or FSTOP                              (FULL STOP to continue: softreset)")
+                print("grblhud commands:")
+                print("   (<Ctrl><D>) or FSTOP                              (FULL STOP, issue softreset to continue)")
                 print()
                 print(" - cls                                               (clear screen)")
                 print(" - load <filename>                                   (load file to buffer)")
@@ -197,34 +197,34 @@ def grblhudloop(args):
                 print(" - S+10, S+1, S-10, S-1                              (Speed up/down 10% 1%)")
                 print(" - F+10, F+1, F-10, F-1                              (Feed up/down 10% 1%)")
                 print(" - softstop                                          (purge command buffer, but let machine buffer run till empty)")
-                print(" - softreset                                         (Issue soft reset command)")
-                print(" - hardreset                                         (Hard reset: close/open serial port)")
+                print(" - softreset                                         (issue soft reset command)")
+                print(" - hardreset                                         (hard reset: close/open serial port)")
                 print(" - sleep                                             ($SLP command)")
-                print(" - dryrun                                            ($C check mode)")
-                print(" - Stoggle                                           (S toggle, in 'Hold' state only)")
-                print(" - setting [<nr>]                                    (get setting for specific <nr>)")
-                print(" - grbl/gcode (direct) command:")
-                print("     -- '!' feed hold, ")
-                print("     -- '~' start/resume, ")
-                print("     -- '?' status, ")
-                print("     -- 'ctrl-x' or 'command + x' soft reset!")
+                print(" - Zprobe                                            (lower head until 'probe' contact is made)")
+                print(" - Zorigin <coord>                                   (make 'probe' point the new Z<coord>)")
+                print(" - Stoggle                                           (Spindle on/off, in 'Hold' state only)")
+                print()
+                print("grbl commands:")
+                print(" - $ (grbl help)")
+                print("     $$ (view Grbl settings)")
+                print("     $# (view # parameters)")
+                print("     $G (view parser state)")
+                print("     $I (view build info)")
+                print("     $N (view startup blocks)")
+                print("     $x=value (save Grbl setting)")
+                print("     $Nx=line (save startup block)")
+                print("     $C (check gcode mode)")
+                print("     $X (kill alarm lock)")
+                print("     $H (run homing cycle)")
+                print("     ~ (cycle start)")
+                print("     ! (feed hold)")
+                print("     ? (current status)")
+                print("     ctrl-x/command + x/softreset (reset Grbl)")
                 print()
                 continue
 
             if line.find("cls") >= 0:
                 os.system('cls' if os.name == 'nt' else 'clear')
-                continue
-            if line.find("setting") >= 0:
-                set_nr = re.search("[0-9]+",line)
-                if set_nr:
-                    set_nr = set_nr.group()
-                    if int(set_nr) in grbl_settings.keys():
-                        print("$" + set_nr + ": " + grbl_settings[int(set_nr)])
-                    else:
-                        print("unknown setting: $" + set_nr)
-                else:
-                    for k in grbl_settings.keys():
-                        print("$" + str(k) + ": " + grbl_settings[k])
                 continue
 
             if line == 'softstop':
@@ -313,15 +313,6 @@ def grblhudloop(args):
                     with Grblbuffer.serialio_lock:
                         print("Sleep 'zzzzz' ")
                         grblbuffer.serial.write("$SLP\n".encode())     # $SLP: zzzz
-                continue
-
-            if line == "dryrun":
-                with Grblbuffer.serialio_lock:
-                    if grblbuffer.machinestatus["state"] != "Check":
-                        print("Commands run Dry Run mode now (issue command again to toggle)")
-                    else:
-                        print("Commands run for REAL now (issue command again to taggle)")
-                    grblbuffer.serial.write("$C\n".encode())       # $C: G-Code Check mode
                 continue
 
             if re.search("^load +[^<>:;,*|\"]+$", line):
@@ -575,6 +566,10 @@ def grblhudloop(args):
                     grblbuffer.serial.write("~".encode())
                     sleep(0.02)
                 continue
+            if line == "?":
+                # indicate 'plain' status report
+                grblbuffer.status_plain = True
+                continue
 
             # set 'realitime' Speed up down 'S+10', 'S+1', 'S-10', 'S-1' command
             if re.search("^S[\+\-](10|1)?",line):
@@ -636,6 +631,59 @@ def grblhudloop(args):
                             grblbuffer.serial.write(b'\x90')
                     sleep(0.02)
                 continue
+
+            # G38.n Straight Probe (https://linuxcnc.org/docs/html/gcode/g-code.html)
+            if line.find("Zprobe") >= 0:
+                # direct command: soft reset
+                with Grblbuffer.serialio_lock:
+                    Grblbuffer.STATUS_PAUZE = True
+                    print("Lower head until 'probe' contact is made.")
+                    print()
+                    print("Make sure a (double) wire is conected to the 'probe' contacts on the machine board and one")
+                    print("wire - on the other end - is connected to a metal object you are setting origin Z0 to, while")
+                    print("the other is connected to the router bit (or a point that is in electric contact).")
+                    print("You can make a test run - using this command - to check if the machine halts when you connect the wires by hand.")
+                    print("After a successfull probe command, 'Zorigin <offset>' can be used to make the probe point, the new Z origin.")
+                    print()
+                    sr = input("Issue Zprobe (enter <Ctrl><D> to abort) (yes/no)? ")
+                    if sr.find("yes") >= 0:
+                        grblbuffer.serial.write("G38.2 Z-25 F24\n".encode())
+                        print("\ngrbl> G38.2 Z-25 F24\n")
+                    else:
+                        print("command aborted")
+                    Grblbuffer.STATUS_PAUZE = False
+                continue
+
+            # G92 Coordinate System Offset (https://linuxcnc.org/docs/html/gcode/g-code.html)
+            if line.find("Zorigin") >= 0:
+                # Set Z<coord> to probe point
+                offset = re.search(" [0-9]+(\.[0-9]+)?",line)
+                if offset:
+                    coord = offset.group()[1:]
+                else:
+                    coord = "0"
+                with Grblbuffer.serialio_lock:
+                    Grblbuffer.STATUS_PAUZE = True
+                    print("Set Z<coord> to probe point.")
+                    print()
+                    print("For example: to make the top of a wood 'slab' to be CNC'd, the Z origin (Z0), a probe can be run (lowered)")
+                    print("that makes contact to a thin metal plate on top of it. If the plate thickness is 2.1 mm, command 'Zorigin 2.1'")
+                    print("will make the probe point Z2.1, which is 2.1 mm above the wood 'slab'. After removing the thin metal plate,")
+                    print("command 'G1 Z0 F24' (move to Z0 with low speed, to be carefull) will make the router bit just touch the top")
+                    print("of the 'slab'. Metal objects to be CNC'd can do with command 'Zorigin' (without an argument).")
+                    print()
+                    print("Note that status report coordinates at the start of each grblhud commandline reflect the new coordinate offset")
+                    print("because it uses Work Position (WPos).")
+                    print()
+                    sr = input("Issue command 'Zorigin " + coord + "' (yes/no)? ")
+                    if sr.find("yes") >= 0:
+                        grblbuffer.serial.write(("G92 Z" + coord + "\n").encode())
+                        print("\ngrbl> G92 Z" + coord + "\n")
+                    else:
+                        print("command aborted")
+                    Grblbuffer.STATUS_PAUZE = False
+                continue
+
 
             # pauze status report
             Grblbuffer.STATUS_PAUZE = True
