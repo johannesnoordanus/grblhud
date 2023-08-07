@@ -61,6 +61,7 @@ class Grblbuffer(threading.Thread):
         self.init_buffer()
         self.WCO = {"X" : 0.0, "Y" : 0.0, "Z" : 0.0}
         self.machinestatus = { "state" : "", "X" : 0.0, "Y" : 0.0, "Z" : 0.0, "Feed" : 0, "Speed" : 0 }
+        self.machinesettings = {}
 
         # status report
         self.status_plain = False
@@ -220,8 +221,11 @@ class Grblbuffer(threading.Thread):
                                 if setting:
                                     setting = re.search("^\$[0-9]+",setting.group())
                                     if setting and int(setting.group()[1:]) in grbl_settings.keys():
+                                        value = re.search("=[0-9]+(\.[0-9]+)?",otds)
+                                        # save machine settings
+                                        if value:
+                                            self.machinesettings[setting.group()] = value.group()[1:]
 
-                                        #otds += (" " * ((25 > len(otds)) ? (25 - len(otds)) : 1 )) + (" + grbl_settings[int(setting.group()[1:])] + ")"
                                         otds += " " * ((25 - len(otds)) if len(otds) < 25 else 1)  + "(" + grbl_settings[int(setting.group()[1:])] + ")"
                             print(otds)
                 else:
@@ -322,3 +326,5 @@ class Grblbuffer(threading.Thread):
                 # check for special characters not needing a nl
                 l_blockn = l_block + '\n'
                 self.serial.write(l_blockn.encode()) # Send g-code block to grbl
+
+
