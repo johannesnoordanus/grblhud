@@ -5,6 +5,7 @@ It features full control of the grbl v1.1 device and supports <i>realtime</i> di
 Grbl state is in line viewable, showing (all) machine states i.e. <i>Idle, Run, Hold, Jog, Alarm, Door, Check, Home, Sleep</i> in color. State also includes current buffered (pending) gcode blocks (and no scrolling <i>ok's</i>)</br>
 Grbl v1.1 error and Alarm code definitions are shown when they occur.
 Spindle and Feed settings can be updated realtime while gcode (G1) is running; gcode programs can be loaded and run with specific <i>Spindle</i> and <i>Feed</i> settings.</br>
+It is possible to easily draw a bounding box of a gcode program and set a new origin. CNC machines can do a Z probe to easily put the bit right on top of the object (to be CNC'd).</br>
 Gcode loops are simulated (using a very simple WHILE DO syntax that must be annotated within the gcode) and can be run separately and (be) iterated at will.
 Soft and hard-resets can be issued and <i>Ctrl-D</i> makes a full stop (to machine state <i>Door</i>).
 This makes it easy to laser draw and cut without the need to (re)connect the device, so drawings and cuts have full (relative) machine precision.</br>   
@@ -36,7 +37,7 @@ Note that image2gcode and svg2gcode can be used to convert images and vector gra
 ### Installation note:
 ``` 
 	- pyserial must be installed first ('pip install pyserial')
-    - inputimeout must be installed ('pip install inputimeout')
+	- inputimeout must be installed ('pip install inputimeout')
 	- pip install grblhud
 
 	To install additional tools:
@@ -60,17 +61,15 @@ Note that image2gcode and svg2gcode can be used to convert images and vector gra
 ```
 ### Example run:
 ```
->
-> grblhud
-Opened serial port /dev/ttyUSB0 at 115200 bauds (bits/s)
+[somedir]$ grblhud
 Initializing grbl...
 
-Status report every 0.1 seconds
+Grbl 1.1h ['$' for help]
+Status report every 0.1 seconds (WPos coordinates)
 Start command queue
-[     XYZ:00.000,00.000,00.000 FS:0,0] grbl> Grbl 1.1h ['$' for help]
-0|[Idle XYZ:00.000,00.000,00.000 FS:0,0] grbl> help
-Type one of the following commands:
-   (<Ctrl><D>) or FSTOP                              (FULL STOP to continue: softreset)
+0|[Idle XYZ:-0.700,-0.400,-1.000 FS:0,0] grbl> help
+grblhud commands:
+   (<Ctrl><D>) or FSTOP                              (FULL STOP, issue softreset to continue)
 
  - cls                                               (clear screen)
  - load <filename>                                   (load file to buffer)
@@ -78,16 +77,30 @@ Type one of the following commands:
  - S+10, S+1, S-10, S-1                              (Speed up/down 10% 1%)
  - F+10, F+1, F-10, F-1                              (Feed up/down 10% 1%)
  - softstop                                          (purge command buffer, but let machine buffer run till empty)
- - softreset                                         (Issue soft reset command)
- - hardreset                                         (Hard reset: close/open serial port)
+ - softreset                                         (issue soft reset command)
+ - hardreset                                         (hard reset: close/open serial port)
  - sleep                                             ($SLP command)
- - dryrun                                            ($C check mode)
- - Stoggle                                           (S toggle, in 'Hold' state only)
- - setting [<nr>]                                    (get setting for specific <nr>)
- - grbl/gcode (direct) command:
-     -- '!' feed hold, 
-     -- '~' start/resume, 
-     -- '?' status, 
-     -- 'ctrl-x' or 'command + x' soft reset!
-0|[Idle XYZ:00.000,00.000,00.000 FS:0,0] grbl> 
+ - Zprobe                                            (lower head until 'probe' contact is made)
+ - origin [X<coord>][Y<coord>][Z<coord>]             (make current XYZ: [X<coord>][Y<coord>][Z<coord>] (shift work coordinates)
+ - Bbox [(X<min>,Y<min>):(X<max>,Y<max>)] [F<eed>]   (draw a bounding box with laser set to low )
+ - Stoggle                                           (Spindle on/off, in 'Hold' state only)
+
+grbl commands:
+ - $ (grbl help)
+     $$ (view Grbl settings)
+     $# (view # parameters)
+     $G (view parser state)
+     $I (view build info)
+     $N (view startup blocks)
+     $x=value (save Grbl setting)
+     $Nx=line (save startup block)
+     $C (check gcode mode)
+     $X (kill alarm lock)
+     $H (run homing cycle)
+     ~ (cycle start)
+     ! (feed hold)
+     ? (current status)
+     ctrl-x/command + x/softreset (reset Grbl)
+
+0|[Idle XYZ:-0.700,-0.400,-1.000 FS:0,0] grbl> 
 ```
