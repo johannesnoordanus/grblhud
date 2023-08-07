@@ -5,6 +5,7 @@ It features full control of the grbl v1.1 device and supports <i>realtime</i> di
 Grbl state is in line viewable, showing (all) machine states i.e. <i>Idle, Run, Hold, Jog, Alarm, Door, Check, Home, Sleep</i> in color. State also includes current buffered (pending) gcode blocks (and no scrolling <i>ok's</i>)</br>
 Grbl v1.1 error and Alarm code definitions are shown when they occur.
 Spindle and Feed settings can be updated realtime while gcode (G1) is running; gcode programs can be loaded and run with specific <i>Spindle</i> and <i>Feed</i> settings.</br>
+It is possible to easily draw a bounding box of a gcode program and set a new origin. CNC machines can do a Z probe to easily put the bit right on top of the object (to be CNC'd).</br>
 Gcode loops are simulated (using a very simple WHILE DO syntax that must be annotated within the gcode) and can be run separately and (be) iterated at will.
 Soft and hard-resets can be issued and <i>Ctrl-D</i> makes a full stop (to machine state <i>Door</i>).
 This makes it easy to laser draw and cut without the need to (re)connect the device, so drawings and cuts have full (relative) machine precision.</br>   
@@ -61,13 +62,12 @@ Note that image2gcode and svg2gcode can be used to convert images and vector gra
 ### Example run:
 ```
 [somedir]$ grblhud
-Opened serial port /dev/ttyUSB0 at 115200 bauds (bits/s)
 Initializing grbl...
-okok
-okok
+
+Grbl 1.1h ['$' for help]
 Status report every 0.1 seconds (WPos coordinates)
 Start command queue
-0|[Idle XYZ:-5.000,00.000,00.000 FS:0,0] grbl> help
+0|[Idle XYZ:-0.700,-0.400,-1.000 FS:0,0] grbl> help
 grblhud commands:
    (<Ctrl><D>) or FSTOP                              (FULL STOP, issue softreset to continue)
 
@@ -81,7 +81,8 @@ grblhud commands:
  - hardreset                                         (hard reset: close/open serial port)
  - sleep                                             ($SLP command)
  - Zprobe                                            (lower head until 'probe' contact is made)
- - Zorigin <coord>                                   (make 'probe' point the new Z<coord>)
+ - origin [X<coord>][Y<coord>][Z<coord>]             (make current XYZ: [X<coord>][Y<coord>][Z<coord>] (shift work coordinates)
+ - Bbox [(X<min>,Y<min>):(X<max>,Y<max>)] [F<eed>]   (draw a bounding box with laser set to low )
  - Stoggle                                           (Spindle on/off, in 'Hold' state only)
 
 grbl commands:
@@ -101,5 +102,5 @@ grbl commands:
      ? (current status)
      ctrl-x/command + x/softreset (reset Grbl)
 
-0|[Idle XYZ:-5.000,00.000,00.000 FS:0,0] grbl> exit
+0|[Idle XYZ:-0.700,-0.400,-1.000 FS:0,0] grbl> 
 ```
