@@ -8,12 +8,23 @@ import os
 import sys
 import re
 from time import sleep
+from argparse import Namespace
 # needs pyserial!
 import serial
+
+from PIL import Image
+import numpy as np
+
 from inputimeout import inputimeout, TimeoutOccurred
 from grblhud import lineinput
 from grblhud.grblbuffer import Grblbuffer
 from grblhud.grblmessages import grbl_alarm
+
+GCODE2IMAGE = True
+try:
+    from gcode2image import gcode2image
+except ImportError:
+    GCODE2IMAGE = False
 
 def count_321():
     """
@@ -197,7 +208,9 @@ def grblhudloop(args):
                 print()
                 print(" - cls                                               (clear screen)")
                 print(" - load <filename>                                   (load file to buffer)")
-                print(" - run [LOOP] <(file/loop)name> [F<eed>] [S<peed>]   (run from buffer)")
+                print(" - run [LOOP] <(file/loop)name> [F<eed>] [S<peed>]   (run file or LOOP from buffer)")
+                print(" - showgcode                                         (show image of the current gcode file (must be in the working directory))")
+                print(" - setLOOP <loopname> <count> <pcstart> <pcend>      (set a WHILE LOOP")
                 print(" - S+10, S+1, S-10, S-1                              (Speed up/down 10% 1%)")
                 print(" - F+10, F+1, F-10, F-1                              (Feed up/down 10% 1%)")
                 print(" - softstop                                          (purge command buffer, but let machine buffer run till empty)")
@@ -205,7 +218,7 @@ def grblhudloop(args):
                 print(" - hardreset                                         (hard reset: close/open serial port)")
                 print(" - sleep                                             ($SLP command)")
                 print(" - Zprobe                                            (lower head until 'probe' contact is made)")
-                print(" - origin [X<coord>][Y<coord>][Z<coord>]             (make current XYZ: [X<coord>][Y<coord>][Z<coord>] (shift work coordinates)")
+                print(" - origin [X<coord>][Y<coord>][Z<coord>]             (make current XYZ: [X<coord>][Y<coord>][Z<coord>] (shift work coordinates))")
                 print(" - Bbox [(X<min>,Y<min>):(X<max>,Y<max>)] [F<eed>]   (draw a bounding box with laser set to low )")
                 print(" - Stoggle                                           (Spindle on/off, in 'Hold' state only)")
                 print()
@@ -238,6 +251,8 @@ def grblhudloop(args):
                         print("Issued softstop (purged command buffer)")
                         # purge buffer
                         grblbuffer.init_buffer()
+                    # end grbl program (switch laser off)
+                    grblbuffer.serial.write("M2\n".encode())
                 continue
 
             if line.find("softreset") >= 0:
@@ -269,31 +284,30 @@ def grblhudloop(args):
                 # hard reset
                 with Grblbuffer.serialio_lock:
                     sr = input("Issue a hard reset (yes/no)? ")
-                if sr.find("yes") >= 0:
+                    if sr.find("yes") >= 0:
 
-                    # close grblstatus loop and Grblbuffer
-                    Grblbuffer.GRBLHUD_EXIT = True
-                    grblbuffer.grblstatus.join()
-		    # put someting to get run loop out of waiting
-                    grblbuffer.put(";")
-                    grblbuffer.join()
+                        # close grblstatus loop and Grblbuffer
+                        Grblbuffer.GRBLHUD_EXIT = True
+                        grblbuffer.grblstatus.join()
+                        # put someting to get run loop out of waiting
+                        grblbuffer.put(";")
+                        grblbuffer.join()
 
-                    # close serial port (and device)
-                    machine_close(grblbuffer.serial)
-                    sleep(.5)
+                        # close serial port (and device)
+                        machine_close(grblbuffer.serial)
+                        sleep(.5)
 
-                    # open serial port (and device)
-                    ser = machine_open(args.serialdevice)
-                    machine_init(ser)
+                        # open serial port (and device)
+                        ser = machine_open(args.serialdevice)
+                        machine_init(ser)
 
-                    # enable run
-                    Grblbuffer.GRBLHUD_EXIT = False
-                    # instantiate and run buffer thread (serial io to/from grbl device)
-                    with Grblbuffer.serialio_lock:
-                        grblbuffer = Grblbuffer(ser, grblinput, terminal)
-                        sleep(1)
-                    grblbuffer.start()
-
+                        # enable run
+                        Grblbuffer.GRBLHUD_EXIT = False
+                        # instantiate and run buffer thread (serial io to/from grbl device)
+                        with Grblbuffer.serialio_lock:
+                            grblbuffer = Grblbuffer(ser, grblinput, terminal)
+                            sleep(1)
+                        grblbuffer.start()
                 continue
 
             if line == "Stoggle":
@@ -558,6 +572,33 @@ def grblhudloop(args):
                 else: print("file", gcodeFile["name"])
                 continue
 
+            if line.find("setLOOP") >= 0:
+                if re.search("setLOOP +[a-z|A-Z]+[0-9]? +[0-9]+ +[0-9]+ +[0-9]+", line):
+                    # setLOOP <loopname> <count> <pcstart> <pcend>
+                    if grblbuffer.machinestatus["state"] != "Idle":
+                        print("Machinestate must be 'Idle' to set a LOOP")
+                        continue
+                    if gcodeFile["name"] == '':
+                        print("Cannot set a LOOP: currently no file loaded!")
+                        continue
+
+                    with Grblbuffer.serialio_lock:
+                        loopname = re.search(" [a-z|A-Z]+[0-9]?", line).group()[1:]
+                        count_pcstart_pcend = re.search(" [0-9]+ +[0-9]+ +[0-9]+", line).group()
+                        count = int(count_pcstart_pcend.split()[0])
+                        pcstart = int(count_pcstart_pcend.split()[1])
+                        pcend = int(count_pcstart_pcend.split()[2])
+
+                        if loopname in gcodeFile["WHILE"]:
+                            print(f"NOTE that LOOP {loopname} with {count} iterations from line {pcstart} to line {pcend} ([{pcstart}:{pcend}]) already EXISTS!")
+                        sr = input(f"Create LOOP {loopname}, {count} iterations from line {pcstart} to line {pcend} ([{pcstart}:{pcend}]) (yes/no)? ")
+                        if sr.find("yes") >= 0:
+                            gcodeFile["WHILE"][loopname] = {"pcstart" : pcstart, "pcend" : pcend, "count" : count }
+                            print(f"LOOP created (use command 'run LOOP {loopname} [F<feed>] [S<speed>]' to run this loop)")
+                else:
+                    print("setLOOP syntax error. Format: 'setLOOP <loopname> <count> <pcstart> <pcend>'")
+                continue
+
             # direct commands
             if line == "!":
                 with Grblbuffer.serialio_lock:
@@ -605,7 +646,6 @@ def grblhudloop(args):
                             grblbuffer.serial.write(b'\x99')
                     sleep(0.02)
                 continue
-
 
             # set 'realitime' Feed up down 'F+10', 'F+1', 'F-10', 'F-1' command
             if re.search("^F[\+\-](10|1)?",line):
@@ -723,7 +763,7 @@ def grblhudloop(args):
                 with Grblbuffer.serialio_lock:
                     Grblbuffer.STATUS_PAUZE = True
 
-                    fltPatt = "[0-9]+(\.[0-9]+)?"
+                    fltPatt = "[\+|\-]?[0-9]+(\.[0-9]+)?"
 
                     minX = ""
                     minY = ""
@@ -756,13 +796,13 @@ def grblhudloop(args):
                         if gcodeFile["name"]:
                             if gcodeFile["bBox"]:
                                 # bbox coordinates from the current gcode file
-                                # format: '(X7.231380,Y8.677330) to (X78.658588,Y24.579710)'
-                                minXY = re.search(f'^\(X{fltPatt},Y{fltPatt}\) ', gcodeFile["bBox"])
+                                # format: '(X7.231380,Y8.677330):(X78.658588,Y24.579710)'
+                                minXY = re.search(f'^\(X{fltPatt},Y{fltPatt}\)', gcodeFile["bBox"])
                                 if minXY:
                                     minX = re.search(f'X{fltPatt}',minXY.group()).group()[1:]
                                     minY = re.search(f',Y{fltPatt}',minXY.group()).group()[2:]
 
-                                maxXY = re.search(f' +\(X{fltPatt},Y{fltPatt}\)', gcodeFile["bBox"])
+                                maxXY = re.search(f':\(X{fltPatt},Y{fltPatt}\)', gcodeFile["bBox"])
                                 if maxXY:
                                     maxX = re.search(f'X{fltPatt}',maxXY.group()).group()[1:]
                                     maxY = re.search(f',Y{fltPatt}',maxXY.group()).group()[2:]
@@ -801,7 +841,36 @@ def grblhudloop(args):
                         else:
                             print(f'Bbox info error: (X{minX},Y{minY}):(X{maxX},Y{maxY})\nCommand aborted.')
                     else:
-                        print("command aborted")
+                        print("No bounding box found, command aborted")
+
+                    Grblbuffer.STATUS_PAUZE = False
+                continue
+
+            if line.find("showgcode") >= 0:
+                if not GCODE2IMAGE:
+                    print("showgcode needs gcode2image to be installed (pip install gcode2image), abort command!")
+                    continue
+
+                if grblbuffer.machinestatus["state"] != "Idle":
+                    print("Machinestate must be 'Idle' to show gcode")
+                    continue
+                if gcodeFile["name"] == '':
+                    print("Cannot show gcode: currently no file loaded!")
+                    continue
+                with Grblbuffer.serialio_lock:
+                    Grblbuffer.STATUS_PAUZE = True
+                    try:
+                        with open(gcodeFile["name"], "r") as fgcode:
+                            # flip to raster image coordinate system
+                            img = np.flipud(gcode2image(Namespace(gcode = fgcode, showG0 = False, showOrigin = True, grid = True)))
+
+                            # convert to image
+                            img = Image.fromarray(img)
+
+                            # show image
+                            img.show()
+                    except IOError:
+                        print("file open error: file must be in the current directory, abort command!")
 
                     Grblbuffer.STATUS_PAUZE = False
                 continue
