@@ -61,19 +61,34 @@ Note that image2gcode and svg2gcode can be used to convert images and vector gra
 ```
 ### Example run:
 ```
+[somedir]$ grblhud --help
+usage: grblhud [-h] [--serialdevice /dev/<serial-tty-name>] [--status /dev/<terminal-tty-name>] [-V]
+
+Stream g-code using grbl's serial read buffer.
+
+options:
+  -h, --help            show this help message and exit
+  --serialdevice /dev/<serial-tty-name>
+                        serial device on linux (default: /dev/ttyUSB0 115200 baud)
+  --status /dev/<terminal-tty-name>, -s /dev/<terminal-tty-name>
+                        grbl status output (default: no output)
+  -V, --version         show version number and exit
+
 [somedir]$ grblhud
 Initializing grbl...
 
 Grbl 1.1h ['$' for help]
 Status report every 0.1 seconds (WPos coordinates)
 Start command queue
-0|[Idle XYZ:-0.700,-0.400,-1.000 FS:0,0] grbl> help
+0|[Idle XYZ:00.000,00.000,00.000 FS:0,0] grbl> help
 grblhud commands:
    (<Ctrl><D>) or FSTOP                              (FULL STOP, issue softreset to continue)
 
  - cls                                               (clear screen)
  - load <filename>                                   (load file to buffer)
- - run [LOOP] <(file/loop)name> [F<eed>] [S<peed>]   (run from buffer)
+ - run [LOOP] <(file/loop)name> [F<eed>] [S<peed>]   (run file or LOOP from buffer)
+ - showgcode                                         (show image of the current gcode file (must be in the working directory))
+ - setLOOP <loopname> <count> <pcstart> <pcend>      (set a WHILE LOOP
  - S+10, S+1, S-10, S-1                              (Speed up/down 10% 1%)
  - F+10, F+1, F-10, F-1                              (Feed up/down 10% 1%)
  - softstop                                          (purge command buffer, but let machine buffer run till empty)
@@ -81,7 +96,7 @@ grblhud commands:
  - hardreset                                         (hard reset: close/open serial port)
  - sleep                                             ($SLP command)
  - Zprobe                                            (lower head until 'probe' contact is made)
- - origin [X<coord>][Y<coord>][Z<coord>]             (make current XYZ: [X<coord>][Y<coord>][Z<coord>] (shift work coordinates)
+ - origin [X<coord>][Y<coord>][Z<coord>]             (make current XYZ: [X<coord>][Y<coord>][Z<coord>] (shift work coordinates))
  - Bbox [(X<min>,Y<min>):(X<max>,Y<max>)] [F<eed>]   (draw a bounding box with laser set to low )
  - Stoggle                                           (Spindle on/off, in 'Hold' state only)
 
@@ -102,5 +117,6 @@ grbl commands:
      ? (current status)
      ctrl-x/command + x/softreset (reset Grbl)
 
-0|[Idle XYZ:-0.700,-0.400,-1.000 FS:0,0] grbl> 
+0|[Idle XYZ:00.000,00.000,00.000 FS:0,0] grbl> exit
+
 ```
