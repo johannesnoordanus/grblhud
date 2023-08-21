@@ -1,94 +1,94 @@
 # grblhub
-Grblhub is a command line based tool to handle grbl code.
+Grblhud is an interactive grbl1.1 control center.
 
 It features full control of the grbl v1.1 device and supports <i>realtime</i> direct commands and buffered streaming of commands and programs.</br>
 Grbl state is in line viewable, showing (all) machine states i.e. <i>Idle, Run, Hold, Jog, Alarm, Door, Check, Home, Sleep</i> in color. State also includes current buffered (pending) gcode blocks (and no scrolling <i>ok's</i>)</br>
 Grbl v1.1 error and Alarm code definitions are shown when they occur.
-Spindle and Feed settings can be updated realtime while gcode (G1) is running; gcode programs can be loaded and run with specific <i>Spindle</i> and <i>Feed</i> settings.</br>
-It is possible to easily draw a bounding box of a gcode program and set a new origin. CNC machines can do a Z probe to easily put the bit right on top of the object (to be CNC'd).</br>
+Spindle and Feed settings can be updated realtime while gcode is running; gcode programs can be loaded and run with specific <i>Spindle</i> and <i>Feed</i> settings.</br>
+It is possible to easily draw a bounding box of a gcode program and set a new origin - workspace coordinates -.</br>
+CNC machines can do a Z probe to easily put the bit right on top of the object (to be CNC'd).</br>
 Gcode loops are simulated (using a very simple WHILE DO syntax that must be annotated within the gcode) and can be run separately and (be) iterated at will.
-Soft and hard-resets can be issued and <i>Ctrl-D</i> makes a full stop (to machine state <i>Door</i>).
+Soft and hard-resets can be issued and <i>Ctrl-D</i> makes a full stop (to machine state <i>Door</i>).</br>
 This makes it easy to laser draw and cut without the need to (re)connect the device, so drawings and cuts have full (relative) machine precision.</br>   
 
 Grblhub is tested on several platforms - arm64/intel - and operating systems - Linux/macosx and two grbl v1.1 devices (a lasercutter and a CNC router)
 
 Information on grbl commands: https://github.com/gnea/grbl/blob/master/doc/markdown/commands.md
 
-Note that image2gcode and svg2gcode can be used to convert images and vector graphics to gcode at the highest quality. gcode2image can be used to validate these conversions and verify the layout before using grblhud to send the code to your lasercutter or cnc machine. https://github.com/johannesnoordanus?tab=repositories
+Note that *image2gcode* and *svg2gcode* can be used to convert images and vector graphics to gcode at the highest quality. gcode2image can be used to validate these conversions and verify the layout before using grblhud to send the code to your lasercutter or cnc machine. https://github.com/johannesnoordanus?tab=repositories
+Also: *grblhud* now has a *showgcode* command, that runs *gcode2image* to show the currently loaded gcode (this includes the origin, size and orientation of the image).
 
-### WHILE DO syntax:
-```
-    # Gcode:
-    #    #100 = 1
-    #    WHILE [#100 LE 5] DO1
-    #    (Some G-Code Blocks Go Here to Be Repeated Each Loop)
-    #    #100 = #100 + 1 (Increase #100 by 1 each iteration of the loop)
-    #    END1
-    
-    # Simulate gcode WHILE DO instructions (above) like this:
-    #    ; WHILE <count> <loopname>'    example: '; WHILE 23 aloop123'
-    #    (Some G-Code Blocks Go Here to Be Repeated Each Loop)
-    #    ; DO <loopname>'               example: '; DO aloop123'
-    #
-    # Note that this is an annotation (quoted out so the grbl controller does not see it)
-    # Note also that loopnames are all lowercase! And have a number (if any) at the end:
-    # in regex '[a-z]+[0-9]*'
-```
-### Installation note:
-``` 
-	- pyserial must be installed first ('pip install pyserial')
-	- inputimeout must be installed ('pip install inputimeout')
-	- pip install grblhud
+### First run:
+As shown below. If you do not specify a serial device, *grblhud* will open a default one and on error show a list of possible candidates you can choose one from, or type a device name you know.
 
-	To install additional tools:
-	- pip install image2gcode
-	- pip install svg2gcode
-	- pip install gcode2image 
+It then starts a status report and run loop. You can enter grbl(hud) commands from that point.
+The prompt shows realtime status information of the machine you are connected to (see the explanation of the *grblhud>* prompt below).</br>
+It is possible to 'stream' a gcode file 'directly' to the machine (via command *stream <file>*) or via a buffer (via commands *load <file>* and *run*.</br>
+The buffered approach makes additional features available, like running LOOPs and bounding boxes and updating F and S values for a specific gcode run.
+To exit, type *exit*.</br>
+Look at the short command summary below, so you are able the control the laser machine directly.
+Note that *load* and *run* commands can take a while on large gcode files, do not panic, realtime load/run information is shown and load/run can be aborted via *anykey* or ```<Ctrl><C>```.</br>
+When you do panic, because your laser machine is hitting walls etc, type ```<Ctrl><D>```, (or ```<Ctrl><C>``` first when commands *run* or *load* are executing)!
+
+```
+$ grblhud --serialdevice /dev/cu.wchusbserial620
+Opened serial port /dev/cu.wchusbserial620 at 115200 bauds (bits/s)
+Initializing grbl...
+okok
+Status report every 0.1 seconds (WPos coordinates)
+Start command queue
+
+**************************************************
+Enter grblhud interactive mode:
+  type 'help <enter>' for a command overview
+  type 'exit <enter>' to leave
+  command history:             type arrow up/down
+  interrupt buffer load/run:   type <Ctrl><C>
+  machine full stop:           type <Ctrl><D>
+  machine halt:                type '~ <enter>'
+  machine laser (Spindle) off: type 'M5<enter>'
+
+Explanation of the realtime 'grbl>' prompt:
+ 101|[Hold XYZ:00.050,51.049,00.000 FS:0,850 ] grbl> ~
+  99|[Run  XYZ:59.268,19.031,00.000 FS:1050,0] grbl> hardreset
+   0|[Idle XYZ:141.840,45.351,00.000 FS:0,850] grbl> $$
+  ^    ^            ^                  ^                ^
+  |    |            |                  |                |
+  | 'grbl state'  'XYZ coordinates' 'Feed/Speed rates' '(grbl) commands you type'
+  | 
+'nbr of lines in buffer' (not the machine buffer!)
+
+**************************************************
+
+0|[Idle XYZ:-6.513,09.283,-0.500 FS:0,0] grbl> 
 ```
 ### Grblhud help:
 ```
-    $ ./grblhud.py --help
-    usage: grblhud.py [-h] [--serialdevice /dev/<serial-tty-name>] [--status /dev/<terminal-tty-name>]
+$ grblhud --help
+usage: grblhud [-h] [--serialdevice /dev/ttyUSB0] [-V]
 
-    Stream g-code using grbl's serial read buffer.
-
-    options:
-      -h, --help            show this help message and exit
-      --serialdevice /dev/<serial-tty-name>
-                            serial device on linux (default: /dev/ttyUSB0 115200 baud)
-      --status /dev/<terminal-tty-name>, -s /dev/<terminal-tty-name>
-                            grbl status output (default: no output)
-```
-### Example run:
-```
-[somedir]$ grblhud --help
-usage: grblhud [-h] [--serialdevice /dev/<serial-tty-name>] [--status /dev/<terminal-tty-name>] [-V]
-
-Stream g-code using grbl's serial read buffer.
+Interactive grbl1.1 control center. Type 'grblhud<enter>' to start the 'hud'.
 
 options:
   -h, --help            show this help message and exit
-  --serialdevice /dev/<serial-tty-name>
-                        serial device on linux (default: /dev/ttyUSB0 115200 baud)
-  --status /dev/<terminal-tty-name>, -s /dev/<terminal-tty-name>
-                        grbl status output (default: no output)
+  --serialdevice /dev/ttyUSB0
+                        serial device of your machine (115200 baud)
   -V, --version         show version number and exit
-
-[somedir]$ grblhud
-Initializing grbl...
-
-Grbl 1.1h ['$' for help]
-Status report every 0.1 seconds (WPos coordinates)
-Start command queue
-0|[Idle XYZ:00.000,00.000,00.000 FS:0,0] grbl> help
+```
+### Example run:
+```
+grblhud --serialdevice /dev/cu.wchusbserial620
+0|[Idle XYZ:-6.513,09.283,-0.500 FS:0,0] grbl> help
 grblhud commands:
-   (<Ctrl><D>) or FSTOP                              (FULL STOP, issue softreset to continue)
+   <Ctrl><D> / FSTOP                                 (FULL MACHINE STOP (grbl1.1 state: 'Door'), issue softreset to continue)
 
- - cls                                               (clear screen)
+ - OS <Unix command>                                 (run a Unix command)
+ - stream <filename>                                 (stream file 'directly' to the machine (Note that WHILE loops, F and S settings are not possible)
  - load <filename>                                   (load file to buffer)
- - run [LOOP] <(file/loop)name> [F<eed>] [S<peed>]   (run file or LOOP from buffer)
+ - run [LOOP] [F<eed>] [S<pindlepeed/power>]         (run file or LOOP from buffer, and possibly set F and/or S for this run)
+ - listgcode [<pcstart> [<pcend>]]                   (gcode listing, possibly set start [end] lines (for large files)
  - showgcode                                         (show image of the current gcode file (must be in the working directory))
- - setLOOP <loopname> <count> <pcstart> <pcend>      (set a WHILE LOOP
+ - setLOOP <loopname> <count> <pcstart> <pcend>      (set a WHILE LOOP)
  - S+10, S+1, S-10, S-1                              (Speed up/down 10% 1%)
  - F+10, F+1, F-10, F-1                              (Feed up/down 10% 1%)
  - softstop                                          (purge command buffer, but let machine buffer run till empty)
@@ -117,6 +117,35 @@ grbl commands:
      ? (current status)
      ctrl-x/command + x/softreset (reset Grbl)
 
-0|[Idle XYZ:00.000,00.000,00.000 FS:0,0] grbl> exit
+0|[Idle XYZ:-6.513,09.283,-0.500 FS:0,0] grbl> 
 
+```
+### WHILE DO syntax:
+Grblhud unrolls loops when files are loaded (via command *load <filename>*) and subsequently run (via command *run*)
+Loops can be defined within a gcode file, as comments *;* using the syntax show below, or be defined by command *setLOOP*.
+```
+    # Gcode:
+    #    #100 = 1
+    #    WHILE [#100 LE 5] DO1
+    #    (Some G-Code Blocks Go Here to Be Repeated Each Loop)
+    #    #100 = #100 + 1 (Increase #100 by 1 each iteration of the loop)
+    #    END1
+    
+    # Simulate gcode WHILE DO instructions (above) like this:
+    #    ; WHILE <count> <loopname>'    example: '; WHILE 23 aloop123'
+    #    (Some G-Code Blocks Go Here to Be Repeated Each Loop)
+    #    ; DO <loopname>'               example: '; DO aloop123'
+    #
+    # Note that this is an annotation (quoted out so the grbl controller does not see it)
+    # Note also that loopnames are all lowercase! And have a number (if any) at the end:
+    # in regex '[a-z]+[0-9]*'
+```
+### Installation note:
+``` 
+	- pip install grblhud 
+
+	To install additional tools:
+	- pip install image2gcode
+	- pip install svg2gcode
+	- pip install gcode2image (already loaded as a requirement of grblhud) 
 ```
