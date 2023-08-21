@@ -51,10 +51,9 @@ class Grblbuffer(threading.Thread):
     # pauze status report when true
     STATUS_PAUZE = False
 
-    def __init__(self, serial, grblinput, status_out = None):
+    def __init__(self, serial, grblinput):
         threading.Thread.__init__(self)
         self.serial = serial
-        self.status_out = status_out
 
         # init
         self.grblinput = grblinput
@@ -203,9 +202,6 @@ class Grblbuffer(threading.Thread):
                             # toggle it
                             self.status_plain = False
                             print(out_temp.decode('ascii'), flush=True)
-
-                        if self.status_out:
-                            print("\r" + lineinput.Input.ERASE_TO_EOL + out_temp.decode('ascii').strip(), file=self.status_out, end = '')
                     else:
                         # Ignore all else
                         # Note that this should not happen, but sometimes, it seems, returns on direct commands are broken off
