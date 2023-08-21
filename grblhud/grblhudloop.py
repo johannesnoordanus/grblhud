@@ -19,12 +19,16 @@ from inputimeout import inputimeout, TimeoutOccurred
 from grblhud import lineinput
 from grblhud.grblbuffer import Grblbuffer
 from grblhud.grblmessages import grbl_alarm
+from grblhud.unblockedgetch import UnblockedGetch
 
 GCODE2IMAGE = True
 try:
     from gcode2image import gcode2image
 except ImportError:
     GCODE2IMAGE = False
+
+SERIALDEVICE = ''
+NO_OF_LINES_SHOWN = 40
 
 def count_321():
     """
@@ -96,7 +100,7 @@ def machine_init(ser):
     Wakeup, report its wakeup message (if any)
     """
     # Wake up grbl
-    print ("Initializing grbl...\n")
+    print ("Initializing grbl...")
     ser.write("\r\n\r\n".encode())
 
     # Wait for grbl to initialize and print startup text (if any)
@@ -109,12 +113,14 @@ def machine_open(device):
     """
     Open serial (grbl) device
     """
+    global SERIALDEVICE
     ser = None
     while True:
         # try open serial device (grlb)
         try:
             ser = serial.Serial(port = device, baudrate = 115200, timeout = .5)
             print("Opened serial port", device, "at 115200 bauds (bits/s)")
+            SERIALDEVICE = device
             break
         except serial.SerialException:
             print("Cannot open serial port", device)
@@ -144,25 +150,43 @@ def grblhudloop(args):
     """
     grblhud main loop
     """
-
     # buffered gcode file info ('load' and 'run' command)
     gcodeFile = { "name" : "", "bBox" : "", "buffer" : [], "WHILE" : {} }
 
     # init serial device
-    ser = machine_open(args.serialdevice)
+    ser = machine_open(args.serialdevice if SERIALDEVICE == '' else SERIALDEVICE)
 
     # init device
     machine_init(ser)
-
-    # terminal for status output (or None)
-    terminal = args.status
 
     # create instance of Input class
     grblinput = lineinput.Input()
 
     # instantiate and run buffer thread (serial io to/from grbl device)
-    grblbuffer = Grblbuffer(ser, grblinput, terminal)
+    grblbuffer = Grblbuffer(ser, grblinput)
     grblbuffer.start()
+
+    # enter grblhud interactive mode
+    print("\n**************************************************")
+    print("Enter grblhud interactive mode:")
+    print("  type 'help <enter>' for a command overview")
+    print("  type 'exit <enter>' to leave")
+    print("  command history:             type arrow up/down")
+    print("  interrupt buffer load/run:   type <Ctrl><C>")
+    print("  machine full stop:           type <Ctrl><D>")
+    print("  machine halt:                type '~ <enter>'")
+    print("  machine laser (Spindle) off: type 'M5<enter>'")
+    print()
+    print("Explanation of the realtime 'grbl>' prompt:")
+    print(" 101|[Hold XYZ:00.050,51.049,00.000 FS:0,850 ] grbl> ~")
+    print("  99|[Run  XYZ:59.268,19.031,00.000 FS:1050,0] grbl> hardreset")
+    print("   0|[Idle XYZ:141.840,45.351,00.000 FS:0,850] grbl> $$")
+    print("  ^    ^            ^                  ^                ^")
+    print("  |    |            |                  |                |")
+    print("  | 'grbl state'  'XYZ coordinates' 'Feed/Speed rates' '(grbl) commands you type'")
+    print("  | ")
+    print("'nbr of lines in buffer' (not the machine buffer!)")
+    print("\n**************************************************\n")
 
     while True:
 
@@ -204,13 +228,15 @@ def grblhudloop(args):
 
             if line.find("help") >= 0:
                 print("grblhud commands:")
-                print("   (<Ctrl><D>) or FSTOP                              (FULL STOP, issue softreset to continue)")
+                print("   <Ctrl><D> / FSTOP                                 (FULL MACHINE STOP (grbl1.1 state: 'Door'), issue softreset to continue)")
                 print()
-                print(" - cls                                               (clear screen)")
+                print(" - OS <Unix command>                                 (run a Unix command)")
+                print(" - stream <filename>                                 (stream file 'directly' to the machine (Note that WHILE loops, F and S settings are not possible)")
                 print(" - load <filename>                                   (load file to buffer)")
-                print(" - run [LOOP] <(file/loop)name> [F<eed>] [S<peed>]   (run file or LOOP from buffer)")
+                print(" - run [LOOP] [F<eed>] [S<pindlepeed/power>]         (run file or LOOP from buffer, and possibly set F and/or S for this run)")
+                print(" - listgcode [<pcstart> [<pcend>]]                   (gcode listing, possibly set start [end] lines (for large files)")
                 print(" - showgcode                                         (show image of the current gcode file (must be in the working directory))")
-                print(" - setLOOP <loopname> <count> <pcstart> <pcend>      (set a WHILE LOOP")
+                print(" - setLOOP <loopname> <count> <pcstart> <pcend>      (set a WHILE LOOP)")
                 print(" - S+10, S+1, S-10, S-1                              (Speed up/down 10% 1%)")
                 print(" - F+10, F+1, F-10, F-1                              (Feed up/down 10% 1%)")
                 print(" - softstop                                          (purge command buffer, but let machine buffer run till empty)")
@@ -239,10 +265,6 @@ def grblhudloop(args):
                 print("     ? (current status)")
                 print("     ctrl-x/command + x/softreset (reset Grbl)")
                 print()
-                continue
-
-            if line.find("cls") >= 0:
-                os.system('cls' if os.name == 'nt' else 'clear')
                 continue
 
             if line == 'softstop':
@@ -284,30 +306,30 @@ def grblhudloop(args):
                 # hard reset
                 with Grblbuffer.serialio_lock:
                     sr = input("Issue a hard reset (yes/no)? ")
-                    if sr.find("yes") >= 0:
 
-                        # close grblstatus loop and Grblbuffer
-                        Grblbuffer.GRBLHUD_EXIT = True
-                        grblbuffer.grblstatus.join()
-                        # put someting to get run loop out of waiting
-                        grblbuffer.put(";")
-                        grblbuffer.join()
+                if sr.find("yes") >= 0:
+                    # close grblstatus loop and Grblbuffer
+                    Grblbuffer.GRBLHUD_EXIT = True
+                    grblbuffer.grblstatus.join()
+                    # put someting to get run loop out of waiting
+                    grblbuffer.put(";")
+                    grblbuffer.join()
 
-                        # close serial port (and device)
-                        machine_close(grblbuffer.serial)
-                        sleep(.5)
+                    # close serial port (and device)
+                    machine_close(grblbuffer.serial)
+                    sleep(.5)
 
-                        # open serial port (and device)
-                        ser = machine_open(args.serialdevice)
-                        machine_init(ser)
+                    # open serial port (and device)
+                    ser = machine_open(args.serialdevice if SERIALDEVICE == '' else SERIALDEVICE)
+                    machine_init(ser)
 
-                        # enable run
-                        Grblbuffer.GRBLHUD_EXIT = False
-                        # instantiate and run buffer thread (serial io to/from grbl device)
-                        with Grblbuffer.serialio_lock:
-                            grblbuffer = Grblbuffer(ser, grblinput, terminal)
-                            sleep(1)
-                        grblbuffer.start()
+                    # enable run
+                    Grblbuffer.GRBLHUD_EXIT = False
+                    # instantiate and run buffer thread (serial io to/from grbl device)
+                    with Grblbuffer.serialio_lock:
+                        grblbuffer = Grblbuffer(ser, grblinput)
+                        sleep(1)
+                    grblbuffer.start()
                 continue
 
             if line == "Stoggle":
@@ -345,99 +367,202 @@ def grblhudloop(args):
                         gcodeFile = { "name" : "", "bBox" : "", "buffer" : [], "WHILE" : {} }
                         gcodeFile["name"] = os.path.basename(filePath)
                         abort = False
-                        # do not do that gcodeFile["buffer"].append('; ' + gcodeFile["name"])
-                        print("Loading file", gcodeFile["name"], "into memory buffer ...\n")
-                        # for line in f:
-                        for i, line in enumerate(f):
-                            print("[" + str(i) + "]\t", line, end = '')
-                            # get bbox if any
-                            # find line like: '; Boundingbox: (X7.231380,Y8.677330) to (X78.658588,Y24.579710)'
-                            if line.find("Boundingbox:") >= 0:
-                                gcodeFile["bBox"] = line[line.find("Boundingbox:") + len("Boundingbox:"):].strip()
 
-                            #    #100 = 1
-                            #    WHILE [#100 LE 5] DO1
-                            #    (Some G-Code Blocks Go Here to Be Repeated Each Loop)
-                            #    #100 = #100 + 1 (Increase #100 by 1 each iteration of the loop)
-                            #    END1
+                        with Grblbuffer.serialio_lock:
+                            Grblbuffer.STATUS_PAUZE = True
+                            print("Load file into memory buffer - wait for it to complete!\nPress <anykey> to abort!")
+                            sr = input(f"Load file {filePath} (yes/no)? ")
 
-                            # Simulate gcode WHILE DO instructions (above) like this:
-                            #    ; WHILE <count> <loopname>' example: '; WHILE 23 aloop123'
-                            #    (Some G-Code Blocks Go Here to Be Repeated Each Loop)
-                            #    ; DO <loopname>' example: '; DO aloop123'
-                            #
-                            # Note that this is an annotation (quoted out so the grbl controller does not see it)
-                            # Note also that loopnames are all lowercase! And have a number (if any) at the end:
-                            # in regex '[a-z]+[0-9]*'
+                        if sr.find("yes") >= 0:
+                            print("Loading file", gcodeFile["name"], "into memory buffer ...\n")
+                            getch_nowait = UnblockedGetch().getch_nowait
+                            # for line in f:
+                            for i, line in enumerate(f):
+                                try:
+                                    if i < NO_OF_LINES_SHOWN:
+                                        print("[" + str(i) + "]\t", line, end = '')
 
-                            # get while loop info
-                            if line.find("; WHILE") >= 0:
-                                # WHILE format: '; WHILE <int> <loopname>' example: '; WHILE 23 Aloop123'
-                                # save buffer start index for this while (should be a loop name)
-                                while_loopname = re.search(" [a-z]+[0-9]*",line)
-                                if not while_loopname:
-                                    print("Missing loopname of '; WHILE' statement, abort load!")
-                                    abort = True
-                                    break
-                                while_loopname = while_loopname.group()[1:]
-                                while_count = re.search(" [0-9]+",line)
-                                if not while_count:
-                                    print("Missing loop count of '; WHILE' statement, abort load!")
-                                    abort = True
-                                    break
-                                while_count = int(while_count.group()[1:])
-                                gcodeFile["WHILE"][while_loopname] = {"pcstart" : i+1, "pcend" : 0, "count" : while_count }
-                            elif line.find("; DO") >= 0:
-                                # do format: '; DO <loopname>' example: '; DO Aloop123'
-                                do_loopname = re.search(" [a-z]+[0-9]*",line)
-                                if not do_loopname:
-                                    print("Missing loopname of '; DO' statement, abort load!")
-                                    abort = True
-                                    break
-                                do_loopname = do_loopname.group()[1:]
-                                # find corresponding 'WHILE DO' save buffer 'end' index for this
-                                if do_loopname in gcodeFile["WHILE"]:
-                                    gcodeFile["WHILE"][do_loopname]["pcend"] = i-1
-                                    # check loop overlap
-                                    for loop in gcodeFile['WHILE']:
-                                        if gcodeFile['WHILE'][loop]['pcend'] == 0 and \
-                                           gcodeFile['WHILE'][loop]['pcstart'] > gcodeFile["WHILE"][do_loopname]["pcstart"]:
-                                            print("WHILE loops '" + loop + "' and '" + do_loopname + "' overlap!, abort load.")
-                                            # clear buffer/loop info
-                                            gcodeFile = { "name" : "", "bBox" : "", "buffer" : [], "WHILE" : {} }
+                                    if i == NO_OF_LINES_SHOWN:
+                                        print("    ...\n    ...\n")
+
+                                    # check keypress every 1000 lines (to be able abort)
+                                    if i and i % 1000 == 0:
+                                        with Grblbuffer.serialio_lock:
+                                            sleep(.02)
+                                            print("\033[ALoaded", i, "lines ...")
+                                            if getch_nowait() != '':
+                                                sr = input(f"Abort load of {filePath} (yes/no)? ")
+                                                if sr.find("yes") >= 0:
+                                                    print(f"load of file {filePath} aborted!")
+                                                    abort = True
+                                                    break
+                                                else:
+                                                    print("\n")
+
+                                    # get bbox if any
+                                    # find line like: '; Boundingbox: (X7.231380,Y8.677330) to (X78.658588,Y24.579710)'
+                                    if line.find("Boundingbox:") >= 0:
+                                        gcodeFile["bBox"] = line[line.find("Boundingbox:") + len("Boundingbox:"):].strip()
+
+                                    #    #100 = 1
+                                    #    WHILE [#100 LE 5] DO1
+                                    #    (Some G-Code Blocks Go Here to Be Repeated Each Loop)
+                                    #    #100 = #100 + 1 (Increase #100 by 1 each iteration of the loop)
+                                    #    END1
+
+                                    # Simulate gcode WHILE DO instructions (above) like this:
+                                    #    ; WHILE <count> <loopname>' example: '; WHILE 23 aloop123'
+                                    #    (Some G-Code Blocks Go Here to Be Repeated Each Loop)
+                                    #    ; DO <loopname>' example: '; DO aloop123'
+                                    #
+                                    # Note that this is an annotation (quoted out so the grbl controller does not see it)
+                                    # Note also that loopnames are all lowercase! And have a number (if any) at the end:
+                                    # in regex '[a-z]+[0-9]*'
+
+                                    # get while loop info
+                                    if line.find("; WHILE") >= 0:
+                                        # WHILE format: '; WHILE <int> <loopname>' example: '; WHILE 23 Aloop123'
+                                        # save buffer start index for this while (should be a loop name)
+                                        while_loopname = re.search(" [a-z]+[0-9]*",line)
+                                        if not while_loopname:
+                                            print("Missing loopname of '; WHILE' statement, abort load!")
                                             abort = True
                                             break
-                                    if abort:
-                                        break
-                                else:
-                                    print("WHILE info isn't consistent: cannot find WHILE label '" + do_loopname + "'!, abort load!" )
-                                    # clear buffer/loop info
-                                    gcodeFile = { "name" : "", "bBox" : "", "buffer" : [], "WHILE" : {} }
+                                        while_loopname = while_loopname.group()[1:]
+                                        while_count = re.search(" [0-9]+",line)
+                                        if not while_count:
+                                            print("Missing loop count of '; WHILE' statement, abort load!")
+                                            abort = True
+                                            break
+                                        while_count = int(while_count.group()[1:])
+                                        gcodeFile["WHILE"][while_loopname] = {"pcstart" : i+1, "pcend" : 0, "count" : while_count }
+                                    elif line.find("; DO") >= 0:
+                                        # do format: '; DO <loopname>' example: '; DO Aloop123'
+                                        do_loopname = re.search(" [a-z]+[0-9]*",line)
+                                        if not do_loopname:
+                                            print("Missing loopname of '; DO' statement, abort load!")
+                                            abort = True
+                                            break
+                                        do_loopname = do_loopname.group()[1:]
+                                        # find corresponding 'WHILE DO' save buffer 'end' index for this
+                                        if do_loopname in gcodeFile["WHILE"]:
+                                            gcodeFile["WHILE"][do_loopname]["pcend"] = i-1
+                                            # check loop overlap
+                                            for loop in gcodeFile['WHILE']:
+                                                if gcodeFile['WHILE'][loop]['pcend'] == 0 and \
+                                                   gcodeFile['WHILE'][loop]['pcstart'] > gcodeFile["WHILE"][do_loopname]["pcstart"]:
+                                                    print("WHILE loops '" + loop + "' and '" + do_loopname + "' overlap!, abort load.")
+                                                    abort = True
+                                                    break
+                                            if abort:
+                                                break
+                                        else:
+                                            print("WHILE info isn't consistent: cannot find WHILE label '" + do_loopname + "'!, abort load!" )
+                                            abort = True
+                                            break
+
+                                    gcodeFile["buffer"].append(line)
+                                except KeyboardInterrupt:
+                                    print(f"load of file {filePath} aborted!")
+                                    abort = True
+                                    break
+                                except MemoryError:
+                                    print(f"Out of memory! Load of file {filePath} aborted!")
                                     abort = True
                                     break
 
-                            gcodeFile["buffer"].append(line)
+                            if abort:
+                                # clear buffer info
+                                gcodeFile = { "name" : "", "bBox" : "", "buffer" : [], "WHILE" : {} }
+                            else:
+                                # give load summary
+                                print("File loaded", len(gcodeFile["buffer"]) - 1, "lines, Bbox:", gcodeFile["bBox"] if gcodeFile["bBox"] else "none")
+                                if gcodeFile["WHILE"]:
+                                    print("Detected the following loop(s):")
+                                    for loop in gcodeFile['WHILE']:
+                                        # {'pcstart': 13, 'pcend': 16, 'count': 2}
+                                        print("    " + loop + ": ", gcodeFile['WHILE'][loop]['count'], " X [", gcodeFile['WHILE'][loop]['pcstart'],
+                                              "]-[", gcodeFile['WHILE'][loop]['pcend'], "]", sep = '')
+                                    print("    (Note that loops can be run separately using 'run LOOP <loopname> [F<feed>] [S<speed>]')\n")
 
-                        if not abort:
-                            # give load summary
-                            if len(gcodeFile["buffer"]) > 0:
-                                print("\nFile loaded", len(gcodeFile["buffer"]) - 1, "lines, Bbox:", gcodeFile["bBox"])
-                            if gcodeFile["WHILE"]:
-                                print("Detected the following loop(s):")
-                                for loop in gcodeFile['WHILE']:
-                                    # {'pcstart': 13, 'pcend': 16, 'count': 2}
-                                    print("    " + loop + ": ", gcodeFile['WHILE'][loop]['count'], " X [", gcodeFile['WHILE'][loop]['pcstart'],
-                                          "]-[", gcodeFile['WHILE'][loop]['pcend'], "]", sep = '')
-                                print("    (Note that loops can be run separately using 'run LOOP <loopname> [F<feed>] [S<speed>]')\n")
+                            Grblbuffer.STATUS_PAUZE = False
 
                 except OSError:
                     print("could not open file:", filePath)
                 continue
 
-            if re.search("^run +[^<>:;,*|\"]+$", line):
-                # run file: 'run [LOOP] <(file)name> [F<eed>] [S<peed>]'
+            if re.search("^stream +[^<>:;,*|\"]+$", line):
+                # stream file: 'stream <filename>'
                 if grblbuffer.machinestatus["state"] != "Idle":
-                    print("Machinestate must be 'Idle' to run a file")
+                    print("machinestate must be 'Idle' to stream a file to the machine")
+                    continue
+                filePath = line[line.find(' ') + 1:]
+                try:
+                    with open(filePath, "r") as f:
+                        abort = False
+
+                        with Grblbuffer.serialio_lock:
+                            Grblbuffer.STATUS_PAUZE = True
+                            print("Stream a file to the machine\nPress <anykey> to abort!")
+                            sr = input(f"Stream file {filePath} (yes/no)? ")
+
+                        if sr.find("yes") >= 0:
+                            print("streaming file to machine ...\n")
+                            getch_nowait = UnblockedGetch().getch_nowait
+                            # for line in f:
+                            for i, line in enumerate(f):
+                                try:
+                                    if i < NO_OF_LINES_SHOWN:
+                                        print("[" + str(i) + "]\t", line, end = '')
+
+                                    if i == NO_OF_LINES_SHOWN:
+                                        print("    ...\n    ...\n")
+
+                                    # check keypress every 1000 lines (to be able abort)
+                                    if i and i % 1000 == 0:
+                                        with Grblbuffer.serialio_lock:
+                                            sleep(.02)
+                                            print("\033[ALoaded", i, "lines ...")
+                                            if getch_nowait() != '':
+                                                sr = input(f"Abort stream {filePath} (yes/no)? ")
+                                                if sr.find("yes") >= 0:
+                                                    print(f"Stream aborted!")
+                                                    abort = True
+                                                    break
+                                                else:
+                                                    print("\n")
+
+                                    grblbuffer.put(line)
+                                except KeyboardInterrupt:
+                                    print(f"Stream {filePath} aborted!")
+                                    abort = True
+                                    break
+                                except MemoryError:
+                                    print(f"Out of memory! Stream {filePath} aborted!")
+                                    abort = True
+                                    break
+
+                            if abort:
+                                with Grblbuffer.bec:
+                                    print("Issued softstop (purged command buffer)")
+                                    # purge buffer
+                                    grblbuffer.init_buffer()
+                                # end grbl program (switch laser off)
+                                grblbuffer.serial.write("M2\n".encode())
+                            else:
+                                # give stream summary
+                                print("Stream send:", i, "lines, - wait for device to complete!")
+
+                            Grblbuffer.STATUS_PAUZE = False
+
+                except OSError:
+                    print("could not open file:", filePath)
+                continue
+
+            if line.find("run") >= 0:
+                # run file: 'run [LOOP] [F<eed>] [S<peed>]'
+                if grblbuffer.machinestatus["state"] != "Idle":
+                    print("Machinestate must be 'Idle' to be able to run")
                     continue
 
                 FS_update = ''
@@ -483,7 +608,7 @@ def grblhudloop(args):
                                 print("Invalid loop count must be > 0:", count)
                                 continue
 
-                            print("Run loop '" + loopname + "'", count, "X,", FS_update + ", Bbox: ", gcodeFile["bBox"])
+                            print("Run loop '" + loopname + "'", count, "X,", FS_update + ", Bbox: ",  gcodeFile["bBox"] if gcodeFile["bBox"] else "none")
                             if not count_321():
                                 # abort
                                 continue
@@ -492,10 +617,14 @@ def grblhudloop(args):
                                 # make sure F and S are set correctly (before loop start)
                                 grblbuffer.put("M4 " + FS_update)
                                 print("<  >\t", "M4 " + FS_update)
+
+                            nbr_of_lines = 0
                             # unroll loop(s);
                             for loopcount in range(int(count)):
                                 grblbuffer.put("; " + loopname + " iterate nr: " + str(loopcount + 1))
-                                print("<  >\t", "; " + loopname + " iterate nr: " + str(loopcount + 1))
+                                if nbr_of_lines < NO_OF_LINES_SHOWN:
+                                    print("<  >\t", "; " + loopname + " iterate nr: " + str(loopcount + 1))
+                                    nbr_of_lines += 1
                                 for li in range(gcodeFile["WHILE"][loopname]["pcstart"], gcodeFile["WHILE"][loopname]["pcend"] + 1):
                                     gcline = gcodeFile["buffer"][li]
                                     if feed:
@@ -506,70 +635,186 @@ def grblhudloop(args):
                                         gcline = re.sub("S[0-9]+", speed, gcline)
 
                                     grblbuffer.put(gcline)
-                                    print("<" + str(li) + ">\t", gcline, end = '')
+                                    if nbr_of_lines < NO_OF_LINES_SHOWN:
+                                        print("<" + str(li) + ">\t", gcline, end = '')
+                                        nbr_of_lines += 1
                     else:
                         print("Cannot find loop with label '" + loopname + "', abort run!")
                     continue
 
-                filePath = line[line.find(' ') + 1:]
-                fileName = os.path.basename(filePath)
-                if fileName == gcodeFile["name"]:
+                fileName = gcodeFile["name"]
+                if fileName != '':
                     with Grblbuffer.serialio_lock:
-                        print("Run", fileName, FS_update, "Bbox: ", gcodeFile["bBox"])
+                        print("Run", fileName, FS_update, "Bbox: ",  gcodeFile["bBox"] if gcodeFile["bBox"] else "none")
                         if not count_321():
                             # abort
                             continue
 
+                        nbr_of_lines = 0
+                        abort = False
                         # unroll loop(s);
                         # get while loop info
                         for i, line in enumerate(gcodeFile["buffer"]):
-                            # put gcode block, substitute set 'speed' and 'feed'
-                            if feed:
-                                # replace F<nr> in this line of code (if any)
-                                line = re.sub("F[0-9]+", feed, line)
+                            try:
 
-                            if speed:
-                                # replace S<nr> in this line of code (if any)
-                                line = re.sub("S[0-9]+", speed, line)
+                                # put gcode block, substitute set 'speed' and 'feed'
+                                if feed:
+                                    # replace F<nr> in this line of code (if any)
+                                    line = re.sub("F[0-9]+", feed, line)
 
-                            grblbuffer.put(line)
-                            print("<" + str(i) + ">\t", line, end = '')
+                                if speed:
+                                    # replace S<nr> in this line of code (if any)
+                                    line = re.sub("S[0-9]+", speed, line)
 
-                            #find DO's get information from label and repeat code
-                            if line.find("; DO") >= 0:
-                                # do format: '; DO <loopname>' example: '; DO Aloop123'
-                                do_loopname = re.search(" [a-z]+[0-9]*",line)
-                                if not do_loopname:
-                                    print("No 'DO' loopname given; abort run!")
-                                    break
-                                do_loopname = do_loopname.group()[1:]
-                                # find corresponding 'WHILE' and get loop start and end address
-                                if do_loopname in gcodeFile["WHILE"]:
-                                    for loopcount in range(gcodeFile["WHILE"][do_loopname]["count"]):
-                                        grblbuffer.put("; " + do_loopname + " iterate nr: " + str(loopcount + 1))
-                                        print("[" + str(i) + "]\t", "; " + do_loopname + " iterate nr: " + str(loopcount + 1))
-                                        for li in range(gcodeFile["WHILE"][do_loopname]["pcstart"], gcodeFile["WHILE"][do_loopname]["pcend"] + 1):
-                                            gcline = gcodeFile["buffer"][li]
+                                grblbuffer.put(line)
+                                if nbr_of_lines < NO_OF_LINES_SHOWN:
+                                    print("<" + str(i) + ">\t", line, end = '')
+                                    nbr_of_lines += 1
+                                if i == NO_OF_LINES_SHOWN:
+                                    print("    ...\n    ...\n")
+                                # check keypress every 1000 lines (to be able abort)
+                                if i and i % 1000 == 0:
+                                        sleep(.02)
+                                        print("\033[ARun", i, "lines ...")
+                                        if getch_nowait() != '':
+                                            sr = input(f"Abort run of {filePath} (yes/no)? ")
+                                            if sr.find("yes") >= 0:
+                                                print(f"run of file {filePath} aborted!")
+                                                with Grblbuffer.bec:
+                                                    print("Issued softstop (purged command buffer)")
+                                                    # purge buffer
+                                                    grblbuffer.init_buffer()
+                                                # end grbl program (switch laser off)
+                                                grblbuffer.serial.write("M2\n".encode())
+                                                abort = True
+                                                break
+                                            else:
+                                                print("\n")
 
-                                            if feed:
-                                                # replace F<nr> in this line of code (if any)
-                                                gcline = re.sub("F[0-9]+", feed, gcline)
+                                #find DO's get information from label and repeat code
+                                if line.find("; DO") >= 0:
+                                    # do format: '; DO <loopname>' example: '; DO Aloop123'
+                                    do_loopname = re.search(" [a-z]+[0-9]*",line)
+                                    if not do_loopname:
+                                        print("No 'DO' loopname given; abort run!")
+                                        abort = True
+                                        break
+                                    do_loopname = do_loopname.group()[1:]
+                                    # find corresponding 'WHILE' and get loop start and end address
+                                    if do_loopname in gcodeFile["WHILE"]:
+                                        for loopcount in range(gcodeFile["WHILE"][do_loopname]["count"]):
+                                            grblbuffer.put("; " + do_loopname + " iterate nr: " + str(loopcount + 1))
+                                            print("[" + str(i) + "]\t", "; " + do_loopname + " iterate nr: " + str(loopcount + 1))
+                                            for li in range(gcodeFile["WHILE"][do_loopname]["pcstart"], gcodeFile["WHILE"][do_loopname]["pcend"] + 1):
+                                                gcline = gcodeFile["buffer"][li]
 
-                                            if speed:
-                                                # replace S<nr> in this line of code (if any)
-                                                gcline = re.sub("S[0-9]+", speed, gcline)
+                                                if feed:
+                                                    # replace F<nr> in this line of code (if any)
+                                                    gcline = re.sub("F[0-9]+", feed, gcline)
 
-                                            grblbuffer.put(gcline)
-                                            print("<" + str(li) + ">\t", gcline, end = '')
-                                else:
-                                    print("WHILE info isn't consistent: cannot find WHILE label '" + do_loopname + "', Abort run!")
-                                    break
+                                                if speed:
+                                                    # replace S<nr> in this line of code (if any)
+                                                    gcline = re.sub("S[0-9]+", speed, gcline)
+
+                                                grblbuffer.put(gcline)
+                                                if nbr_of_lines < NO_OF_LINES_SHOWN:
+                                                    print("<" + str(li) + ">\t", gcline, end = '')
+                                                    nbr_of_lines += 1
+                                                if i == NO_OF_LINES_SHOWN:
+                                                    print("    ...\n    ...\n")
+                                                # check keypress every 1000 lines (to be able abort)
+                                                if i and i % 1000 == 0:
+                                                        sleep(.02)
+                                                        print("\033[ARun", i, "lines ...")
+                                                        if getch_nowait() != '':
+                                                            sr = input(f"Abort run of {filePath} (yes/no)? ")
+                                                            if sr.find("yes") >= 0:
+                                                                print(f"run of file {filePath} aborted!")
+                                                                with Grblbuffer.bec:
+                                                                    print("Issued softstop (purged command buffer)")
+                                                                    # purge buffer
+                                                                    grblbuffer.init_buffer()
+                                                                # end grbl program (switch laser off)
+                                                                grblbuffer.serial.write("M2\n".encode())
+                                                                abort = True
+                                                                break
+                                                            else:
+                                                                print("\n")
+                                    else:
+                                        print("WHILE info isn't consistent: cannot find WHILE label '" + do_loopname + "', Abort run!")
+                                        break
+
+                            except KeyboardInterrupt:
+                                print(f"run of file {filePath} aborted!")
+                                with Grblbuffer.bec:
+                                    print("Issued softstop (purged command buffer)")
+                                    # purge buffer
+                                    grblbuffer.init_buffer()
+                                # end grbl program (switch laser off)
+                                grblbuffer.serial.write("M2\n".encode())
+                                abort = True
+                                break
+                            except MemoryError:
+                                print(f"Out of memory! Run of file {filePath} aborted!")
+                                with Grblbuffer.bec:
+                                    print("Issued softstop (purged command buffer)")
+                                    # purge buffer
+                                    grblbuffer.init_buffer()
+                                # end grbl program (switch laser off)
+                                grblbuffer.serial.write("M2\n".encode())
+                                abort = True
+                                break
+
+                        if not abort:
+                            # give run summary
+                            print("send:", len(gcodeFile["buffer"]), "lines, - wait for device to complete!")
                     continue
 
-                print("Run error: memory buffer contains ", end='')
+                print("Currently no gcode file is loaded. Use command 'load <filename>' to load a gcode file.")
+                continue
+
+            if line.find("listgcode") >= 0:
                 if gcodeFile["name"] == '':
-                    print("no file")
-                else: print("file", gcodeFile["name"])
+                    print("Cannot list gcode file: currently no file loaded!")
+                    continue
+                if not len(gcodeFile["buffer"]):
+                    print("Empty list!")
+                    continue
+
+                pcstart = 0
+                pcend = len(gcodeFile["buffer"]) - 1
+                pcstart_pcend = re.search(" [0-9]+ +[0-9]+", line)
+                if pcstart_pcend:
+                    pcstart_pcend = pcstart_pcend.group()
+
+                    pcstart = int(pcstart_pcend.split()[0])
+                    pcend = int(pcstart_pcend.split()[1])
+                else:
+                    start = re.search(" [0-9]+", line)
+                    if start:
+                        pcstart = int(start.group())
+
+                with Grblbuffer.serialio_lock:
+                    Grblbuffer.STATUS_PAUZE = True
+                    sr = input(f"list file {filePath} [{pcstart}-{pcend}] (Press <anykey> to abort) (yes/no)? ")
+
+                    if sr.find("yes") >= 0:
+                        for i, line in enumerate(gcodeFile["buffer"]):
+                            if i >= pcstart and i <= pcend:
+                                print("[" + str(i) + "]\t", line, end = '')
+                                # check keypress every 1000 lines (to be able abort)
+                                if i and i % 1000 == 0:
+                                        sleep(.02)
+                                        print("\033[AListing", i, "lines ...")
+                                        if getch_nowait() != '':
+                                            sr = input(f"Abort gcode list (of {gcodeFile['name']} (yes/no)?")
+                                            if sr.find("yes") >= 0:
+                                                print(f"Listing aborted!")
+                                                break
+                                            else:
+                                                print("\n")
+
+                    Grblbuffer.STATUS_PAUZE = False
                 continue
 
             if line.find("setLOOP") >= 0:
@@ -597,6 +842,20 @@ def grblhudloop(args):
                             print(f"LOOP created (use command 'run LOOP {loopname} [F<feed>] [S<speed>]' to run this loop)")
                 else:
                     print("setLOOP syntax error. Format: 'setLOOP <loopname> <count> <pcstart> <pcend>'")
+                continue
+
+            if line.find("OS") >= 0:
+                with Grblbuffer.serialio_lock:
+                    Grblbuffer.STATUS_PAUZE = True
+                    #command = re.search(" +[a-z|A-Z|0-9 \-\+\.\|*]+", line)
+                    command = re.search(" +.*", line)
+                    if command:
+                        print(f"execute command: '{command.group()[1:]}'")
+                        rval = os.popen(command.group()[1:]).read()
+                        print(rval)
+                    else:
+                        print("No OS command found!")
+                    Grblbuffer.STATUS_PAUZE = False
                 continue
 
             # direct commands
@@ -752,9 +1011,6 @@ def grblhudloop(args):
             # draw bounding box with low power laser setting
             # gcodeFile = { "name" : "", "bBox" : "", "buffer" : [], "WHILE" : {} }
             if line.find("Bbox") >= 0:
-            # if re.search("^run +[^<>:;,*|\"]+$", line):
-                # Bbox [(X<min>,Y<min>):(X<max>,Y<max>)] [F<eed>] (draw a bounding box of the current gcode file or bbox coordinates)")
-
                 if "$32" in grblbuffer.machinesettings and int(grblbuffer.machinesettings["$32"]) != 1:
                     print(f'Machine is not in laser mode! (setting $32={grblbuffer.machinesettings["$32"]})')
                     print("command aborted")
@@ -840,8 +1096,6 @@ def grblhudloop(args):
                                 print("command aborted")
                         else:
                             print(f'Bbox info error: (X{minX},Y{minY}):(X{maxX},Y{maxY})\nCommand aborted.')
-                    else:
-                        print("No bounding box found, command aborted")
 
                     Grblbuffer.STATUS_PAUZE = False
                 continue
@@ -895,10 +1149,19 @@ def grblhudloop(args):
 
         except EOFError:
             break
+        except KeyboardInterrupt:
+            pass
+        except MemoryError:
+            print(f"Out of memory! Exit grblhud.")
+            print("Wait for program exit ....")
+            Grblbuffer.GRBLHUD_EXIT = True
+            grblbuffer.grblstatus.join()
+	    # put something to get run loop out of waiting
+            grblbuffer.put(";")
+            grblbuffer.join()
+            break
 
     print("Exit program")
 
     # close serial port, status terminal
     machine_close(grblbuffer.serial)
-    if terminal:
-        terminal.close()
