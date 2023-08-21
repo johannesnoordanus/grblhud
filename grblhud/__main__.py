@@ -15,14 +15,11 @@ def create_parser():
     grblhud argument(s) parser
     """
     parser = argparse.ArgumentParser(
-        description="Stream g-code using grbl's serial read buffer.")
+        description="Interactive grbl1.1 control center. Type 'grblhud<enter>' to start the 'hud'.")
 
     parser.add_argument('--serialdevice', default="/dev/ttyUSB0",
-        metavar='/dev/<serial-tty-name>',
-        help='serial device on linux (default: /dev/ttyUSB0 115200 baud)')
-
-    parser.add_argument( '--status', '-s', type=argparse.FileType('w'), default=None, metavar='/dev/<terminal-tty-name>',
-        help="grbl status output (default: no output)")
+        metavar='/dev/ttyUSB0',
+        help='serial device of your machine (115200 baud)')
 
     parser.add_argument('-V', '--version', action='version', version='%(prog)s ' + __version__,
         help="show version number and exit")
