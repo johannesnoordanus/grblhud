@@ -1116,7 +1116,7 @@ def grblhudloop(args):
                     try:
                         with open(gcodeFile["name"], "r") as fgcode:
                             # flip to raster image coordinate system
-                            img = np.flipud(gcode2image(Namespace(gcode = fgcode, showG0 = False, showOrigin = True, grid = True)))
+                            img = np.flipud(gcode2image(Namespace(gcode = fgcode, resolution = .1, showG0 = False, showOrigin = True, grid = True)))
 
                             # convert to image
                             img = Image.fromarray(img)
