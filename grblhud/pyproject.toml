@@ -1,0 +1,25 @@
+[build-system]
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "grblhud"
+authors = [{name = "Johannes Noordanus", email = "mailjohannes.mailnoordanus@gmail.com"}]
+readme = "README.md"
+license = {file = "LICENSE"}
+classifiers = ["License :: OSI Approved :: MIT License"]
+dynamic = ["version", "description"]
+
+keywords = ["grbl", "grblv1.1", "hud", "laser cutter", "laser engraving"]
+dependencies = [
+    "gcode2image >= 2.2",
+    "inputimeout >= 1.0.4",
+    "pyserial >= 3.5",
+]
+requires-python = ">=3.7"
+
+[project.scripts]
+grblhud = "grblhud.__main__:main"
+
+[project.urls]
+Home = "https://github.com/johannesnoordanus/grblhud"
