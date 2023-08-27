@@ -30,6 +30,8 @@ except ImportError:
 SERIALDEVICE = ''
 NO_OF_LINES_SHOWN = 40
 
+gcode_pattern = "^ *(G0|G1|X|Y|M4|M3|M5|M2|S|F|;|\$|~|!|\?)"
+
 def count_321():
     """
     Countdown
@@ -124,19 +126,22 @@ def machine_open(device):
             break
         except serial.SerialException:
             print("Cannot open serial port", device)
-            print("Found the following serial usb device candidates:")
             filenames = next(os.walk("/dev"))[2]
+
             # get known serial device names (linux(es), macos, macold):
             # on iMac (2009): 				/dev/cu.wchusbserial410 	115200
             # on Mac mini (first Intel): 		/dev/cu.Repleo-CH341-0000105D 	115200
             # on linux (arm) (Manjaro linux kernel 6+): /dev/ttyUSB0			115200)
-
             known_serial_devices = ['/dev/' + item for item in filenames if re.match(".*(serial|usb|ch34)",item, re.IGNORECASE)]
-            for dev in known_serial_devices:
-                print("\t" + dev)
+
+            if known_serial_devices != []:
+                print("Found the following serial usb device candidates:")
+                for dev in known_serial_devices:
+                    print("\t" + dev)
             device = input("Enter device name: ")
             if device:
                 continue
+            print("no serial device name given, program abort")
             sys.exit()
     return ser
 
@@ -245,7 +250,7 @@ def grblhudloop(args):
                 print(" - sleep                                             ($SLP command)")
                 print(" - Zprobe                                            (lower head until 'probe' contact is made)")
                 print(" - origin [X<coord>][Y<coord>][Z<coord>]             (make current XYZ: [X<coord>][Y<coord>][Z<coord>] (shift work coordinates))")
-                print(" - Bbox [(X<min>,Y<min>):(X<max>,Y<max>)] [F<eed>]   (draw a bounding box with laser set to low )")
+                print(" - Bbox [(X<min>,Y<min>):(X<max>,Y<max>)] [F<eed>]   (draw a bounding box of the current gcode file (no argument) or a self defind box)")
                 print(" - Stoggle                                           (Spindle on/off, in 'Hold' state only)")
                 print()
                 print("grbl commands:")
@@ -332,7 +337,7 @@ def grblhudloop(args):
                     grblbuffer.start()
                 continue
 
-            if line == "Stoggle":
+            if line.find("Stoggle") >= 0 or line.find("stoggle") >= 0:
                 with Grblbuffer.serialio_lock:
                     Grblbuffer.STATUS_PAUZE = True
                     # check machine state
@@ -358,9 +363,6 @@ def grblhudloop(args):
 
             if re.search("^load +[^<>:;,*|\"]+$", line):
                 # load file: 'load <filename>'
-                if grblbuffer.machinestatus["state"] != "Idle":
-                    print("machinestate must be 'Idle' to load a file")
-                    continue
                 filePath = line[line.find(' ') + 1:]
                 try:
                     with open(filePath, "r") as f:
@@ -609,6 +611,7 @@ def grblhudloop(args):
                                 continue
 
                             print("Run loop '" + loopname + "'", count, "X,", FS_update + ", Bbox: ",  gcodeFile["bBox"] if gcodeFile["bBox"] else "none")
+                            print("Make sure the work area is cleared and you wear glasses to be protected!")
                             if not count_321():
                                 # abort
                                 continue
@@ -646,6 +649,7 @@ def grblhudloop(args):
                 if fileName != '':
                     with Grblbuffer.serialio_lock:
                         print("Run", fileName, FS_update, "Bbox: ",  gcodeFile["bBox"] if gcodeFile["bBox"] else "none")
+                        print("Make sure the work area is cleared and you wear glasses to be protected!")
                         if not count_321():
                             # abort
                             continue
@@ -817,7 +821,7 @@ def grblhudloop(args):
                     Grblbuffer.STATUS_PAUZE = False
                 continue
 
-            if line.find("setLOOP") >= 0:
+            if line.find("setLOOP") >= 0 or line.find("setloop") > 0:
                 if re.search("setLOOP +[a-z|A-Z]+[0-9]? +[0-9]+ +[0-9]+ +[0-9]+", line):
                     # setLOOP <loopname> <count> <pcstart> <pcend>
                     if grblbuffer.machinestatus["state"] != "Idle":
@@ -844,7 +848,7 @@ def grblhudloop(args):
                     print("setLOOP syntax error. Format: 'setLOOP <loopname> <count> <pcstart> <pcend>'")
                 continue
 
-            if line.find("OS") >= 0:
+            if line.find("OS") >= 0 or line.find("os") >= 0:
                 with Grblbuffer.serialio_lock:
                     Grblbuffer.STATUS_PAUZE = True
                     #command = re.search(" +[a-z|A-Z|0-9 \-\+\.\|*]+", line)
@@ -858,7 +862,210 @@ def grblhudloop(args):
                     Grblbuffer.STATUS_PAUZE = False
                 continue
 
-            # direct commands
+
+            # G38.n Straight Probe (https://linuxcnc.org/docs/html/gcode/g-code.html)
+            if line.find("Zprobe") >= 0 or line.find("zprobe") >= 0:
+                # Z-axis probe command
+                if "$32" in grblbuffer.machinesettings and int(grblbuffer.machinesettings["$32"]) == 1:
+                    print(f'Machine is in laser mode! (setting $32={grblbuffer.machinesettings["$32"]})')
+                    print("command aborted")
+                    continue
+                with Grblbuffer.serialio_lock:
+                    Grblbuffer.STATUS_PAUZE = True
+                    print("Lower head until 'probe' contact is made.")
+                    print()
+                    print("Make sure a (double) wire is conected to the 'probe' contacts on the machine board and one")
+                    print("wire - on the other end - is connected to a metal object that is on top of the object you are")
+                    print("setting the origin Z0 to, while the other is connected to the router bit (or a point that is")
+                    print("in electric contact).")
+                    print("You can make a test run - using this command - to check if the machine halts when you connect the wires by hand.")
+                    print("After a successfull probe command, 'origin Z<metal_object_height>' can be used to make the probe point Z<metal_object_height>.")
+                    print()
+                    sr = input("Issue probe (enter <Ctrl><D> to abort) (yes/no)? ")
+                    if sr.find("yes") >= 0:
+                        grblbuffer.serial.write("G38.2 Z-25 F24\n".encode())
+                        print("\ngrbl> G38.2 Z-25 F24\n")
+                    else:
+                        print("command aborted")
+                    Grblbuffer.STATUS_PAUZE = False
+                continue
+
+            # G92 Coordinate System Offset (https://linuxcnc.org/docs/html/gcode/g-code.html)
+            if line.find("origin") >= 0:
+                # get coordinates
+                Xoffset = re.search("X[0-9]+(\.[0-9]+)?",line)
+                Yoffset = re.search("Y[0-9]+(\.[0-9]+)?",line)
+                Zoffset = re.search("Z[0-9]+(\.[0-9]+)?",line)
+                if Xoffset:
+                    Xoffset = Xoffset.group()
+                else:
+                    Xoffset = ""
+                if Yoffset:
+                    Yoffset = Yoffset.group()
+                else:
+                    Yoffset = ""
+                if Zoffset:
+                    Zoffset = Zoffset.group()
+                else:
+                    Zoffset = ""
+
+                if not (Xoffset or Yoffset or Zoffset):
+                    print("At least one origin offset must be given!\nCommand aborted.")
+                    continue
+
+                with Grblbuffer.serialio_lock:
+                    Grblbuffer.STATUS_PAUZE = True
+                    print("Set X<coord>Y<coord>Z<coord> to current point. (shift the Work Coordinate System)")
+                    print()
+                    print("For example: to make the top of a wood 'slab' to be CNC'd, the Z origin (Z0), a probe can be run (lowered)")
+                    print("that makes contact to a thin metal plate on top of it. If the plate thickness is 2.1 mm, command 'origin Z2.1'")
+                    print("will make the probe point Z2.1, which is 2.1 mm above the wood 'slab'. After removing the thin metal plate,")
+                    print("command 'G1 Z0 F24' (move to Z0 with low speed, to be carefull) will make the router bit just touch the top")
+                    print("of the 'slab'. Metal objects to be CNC'd can do with command 'origin Z0' (with 0 offset).")
+                    print()
+                    print("Note that status report coordinates at the start of each grblhud commandline reflect the new coordinate offset")
+                    print("because it uses Work Position (WPos).")
+                    print()
+                    sr = input(f"Issue command 'origin {Xoffset}{Yoffset}{Zoffset}' (yes/no)? ")
+                    if sr.find("yes") >= 0:
+                        grblbuffer.serial.write((f"G92 {Xoffset}{Yoffset}{Zoffset}\n").encode())
+                        print(f"\ngrbl> G92 {Xoffset}{Yoffset}{Zoffset}\n")
+                    else:
+                        print("command aborted")
+                    Grblbuffer.STATUS_PAUZE = False
+                continue
+
+            # draw bounding box with low power laser setting
+            # gcodeFile = { "name" : "", "bBox" : "", "buffer" : [], "WHILE" : {} }
+            if line.find("Bbox") >= 0 or line.find("bbox") >= 0:
+                if "$32" in grblbuffer.machinesettings and int(grblbuffer.machinesettings["$32"]) != 1:
+                    print(f'Machine is not in laser mode! (setting $32={grblbuffer.machinesettings["$32"]})')
+                    print("command aborted")
+                    continue
+
+                with Grblbuffer.serialio_lock:
+                    Grblbuffer.STATUS_PAUZE = True
+
+                    fltPatt = "[\+|\-]?[0-9]+(\.[0-9]+)?"
+
+                    minX = ""
+                    minY = ""
+                    maxX = ""
+                    maxY = ""
+
+                    fromFile = ""
+
+                    feed = re.search(" F[0-9]+",line)
+                    if feed:
+                        feed = feed.group()[1:]
+                        # remove F<nr> from line
+                        line = re.sub(" F[0-9]+", "", line)
+                    else:
+                        feed = "F1000"
+
+                    bboxcoords = re.search(f' \(X{fltPatt},Y{fltPatt}\):\(X{fltPatt},Y{fltPatt}\)',line)
+                    if bboxcoords:
+                        bboxcoords = bboxcoords.group()[1:]
+                        minXY = re.search(f'\(X{fltPatt},Y{fltPatt}\)', bboxcoords).group()
+                        minX = re.search(f'X{fltPatt}',minXY).group()[1:]
+                        minY = re.search(f',Y{fltPatt}',minXY).group()[2:]
+
+                        maxXY = re.search(f':\(X{fltPatt},Y{fltPatt}\)', bboxcoords).group()[1:]
+                        maxX = re.search(f'X{fltPatt}',maxXY).group()[1:]
+                        maxY = re.search(f',Y{fltPatt}',maxXY).group()[2:]
+                    elif len(line) > len("Bbox"):
+                        print("Error in Bbox argument, format is: (X<min>,Y<min>):(X<max>,Y<max>)")
+                    else:
+                        if gcodeFile["name"]:
+                            if gcodeFile["bBox"]:
+                                # bbox coordinates from the current gcode file
+                                # format: '(X7.231380,Y8.677330):(X78.658588,Y24.579710)'
+                                minXY = re.search(f'^\(X{fltPatt},Y{fltPatt}\)', gcodeFile["bBox"])
+                                if minXY:
+                                    minX = re.search(f'X{fltPatt}',minXY.group()).group()[1:]
+                                    minY = re.search(f',Y{fltPatt}',minXY.group()).group()[2:]
+
+                                maxXY = re.search(f':\(X{fltPatt},Y{fltPatt}\)', gcodeFile["bBox"])
+                                if maxXY:
+                                    maxX = re.search(f'X{fltPatt}',maxXY.group()).group()[1:]
+                                    maxY = re.search(f',Y{fltPatt}',maxXY.group()).group()[2:]
+
+                                fromFile = f'- from file {gcodeFile["name"]} -'
+                            else:
+                                print("No Bbox info found in current gcode file.")
+                        else:
+                            print("Currently no gcode file is loaded. Use 'load <filename>' command to load a gcode file.")
+
+                    # check bbox
+                    if minX and minY and maxX and maxY:
+                        if float(minX) <= float(maxX) and float(minY) <= float(maxY):
+                            low_laser_intensity = 10
+                            if "$31" in grblbuffer.machinesettings and "$30" in grblbuffer.machinesettings:
+                                minimum_laser_intensity = grblbuffer.machinesettings["$31"]
+                                maximum_laser_intensity = grblbuffer.machinesettings["$30"]
+                                # set laser intensity to < 1%
+                                low_laser_intensity = (maximum_laser_intensity - minimum_laser_intensity)/100
+                            else:
+                                print(f"minimum and maximum laser intensity settings are unknown (type grbl command '$$'), set to default of {low_laser_intensity}")
+
+                            print(f'Draw bounding box: (X{minX},Y{minY}):(X{maxX},Y{maxY}) {fromFile} with laser intensity set to {low_laser_intensity} and speed {feed}.')
+                            print("Make sure the work area is cleared and you wear glasses to be protected!")
+                            sr = input("Draw (yes/no)? ")
+                            if sr.find("yes") >= 0:
+                                grblbuffer.serial.write(("M5\n").encode())
+                                grblbuffer.serial.write((f'G1 X{minX} Y{minY} {feed}\n').encode())
+                                grblbuffer.serial.write(("M3\n").encode())
+                                grblbuffer.serial.write((f'G1 X{maxX} {feed} S1\n').encode())
+                                grblbuffer.serial.write((f'G1 Y{maxY} {feed} S1\n').encode())
+                                grblbuffer.serial.write((f'G1 X{minX} {feed} S1\n').encode())
+                                grblbuffer.serial.write((f'G1 Y{minY} {feed} S1\n').encode())
+                                grblbuffer.serial.write(("M5\n").encode())
+                                print("\ngrbl> M5")
+                                print("grbl> " + f'G1 X{minX} Y{minY} {feed}')
+                                print("grbl> M3")
+                                print("grbl> " + f'G1 X{maxX} {feed} S1')
+                                print("grbl> " + f'G1 Y{maxY} {feed} S1')
+                                print("grbl> " + f'G1 X{minX} {feed} S1')
+                                print("grbl> " + f'G1 Y{minY} {feed} S1')
+                                print("grbl> M5\n")
+                            else:
+                                print("command aborted")
+                        else:
+                            print(f'Bbox info error: (X{minX},Y{minY}):(X{maxX},Y{maxY})\nCommand aborted.')
+
+                    Grblbuffer.STATUS_PAUZE = False
+                continue
+
+            if line.find("showgcode") >= 0:
+                if not GCODE2IMAGE:
+                    print("showgcode needs gcode2image to be installed (pip install gcode2image), abort command!")
+                    continue
+
+                if grblbuffer.machinestatus["state"] != "Idle":
+                    print("Machinestate must be 'Idle' to show gcode")
+                    continue
+                if gcodeFile["name"] == '':
+                    print("Cannot show gcode: currently no file loaded!")
+                    continue
+                with Grblbuffer.serialio_lock:
+                    Grblbuffer.STATUS_PAUZE = True
+                    try:
+                        with open(gcodeFile["name"], "r") as fgcode:
+                            # flip to raster image coordinate system
+                            img = np.flipud(gcode2image(Namespace(gcode = fgcode, showG0 = False, resolution = .1, showorigin = True, grid = True)))
+
+                            # convert to image
+                            img = Image.fromarray(img)
+
+                            # show image
+                            img.show()
+                    except IOError:
+                        print("file open error: file must be in the current directory, abort command!")
+
+                    Grblbuffer.STATUS_PAUZE = False
+                continue
+
+            # grbl direct commands
             if line == "!":
                 with Grblbuffer.serialio_lock:
                     # write direct command '!' 'feed hold'
@@ -936,199 +1143,10 @@ def grblhudloop(args):
                     sleep(0.02)
                 continue
 
-            # G38.n Straight Probe (https://linuxcnc.org/docs/html/gcode/g-code.html)
-            if line.find("Zprobe") >= 0:
-                # Z-axis probe command
-                if "$32" in grblbuffer.machinesettings and int(grblbuffer.machinesettings["$32"]) == 1:
-                    print(f'Machine is in laser mode! (setting $32={grblbuffer.machinesettings["$32"]})')
-                    print("command aborted")
-                    continue
-                with Grblbuffer.serialio_lock:
-                    Grblbuffer.STATUS_PAUZE = True
-                    print("Lower head until 'probe' contact is made.")
-                    print()
-                    print("Make sure a (double) wire is conected to the 'probe' contacts on the machine board and one")
-                    print("wire - on the other end - is connected to a metal object that is on top of the object you are")
-                    print("setting the origin Z0 to, while the other is connected to the router bit (or a point that is")
-                    print("in electric contact).")
-                    print("You can make a test run - using this command - to check if the machine halts when you connect the wires by hand.")
-                    print("After a successfull probe command, 'origin Z<metal_object_height>' can be used to make the probe point Z<metal_object_height>.")
-                    print()
-                    sr = input("Issue probe (enter <Ctrl><D> to abort) (yes/no)? ")
-                    if sr.find("yes") >= 0:
-                        grblbuffer.serial.write("G38.2 Z-25 F24\n".encode())
-                        print("\ngrbl> G38.2 Z-25 F24\n")
-                    else:
-                        print("command aborted")
-                    Grblbuffer.STATUS_PAUZE = False
+            if line != '' and not re.search(gcode_pattern,line):
+                print(f"unknown grblhud command '{line}', type a GRBL command or one of:")
+                print("  help, OS, stream, load, run, listgcode, showgcode, setLOOP, S+, S-, F+, F-, softstop, softreset, hardreset, sleep, Zprobe, origin, Bbox, Stoggle")
                 continue
-
-            # G92 Coordinate System Offset (https://linuxcnc.org/docs/html/gcode/g-code.html)
-            if line.find("origin") >= 0:
-                # get coordinates
-                Xoffset = re.search("X[0-9]+(\.[0-9]+)?",line)
-                Yoffset = re.search("Y[0-9]+(\.[0-9]+)?",line)
-                Zoffset = re.search("Z[0-9]+(\.[0-9]+)?",line)
-                if Xoffset:
-                    Xoffset = Xoffset.group()
-                else:
-                    Xoffset = ""
-                if Yoffset:
-                    Yoffset = Yoffset.group()
-                else:
-                    Yoffset = ""
-                if Zoffset:
-                    Zoffset = Zoffset.group()
-                else:
-                    Zoffset = ""
-
-                if not (Xoffset or Yoffset or Zoffset):
-                    print("At least one origin offset must be given!\nCommand aborted.")
-                    continue
-
-                with Grblbuffer.serialio_lock:
-                    Grblbuffer.STATUS_PAUZE = True
-                    print("Set X<coord>Y<coord>Z<coord> to current point. (shift the Work Coordinate System)")
-                    print()
-                    print("For example: to make the top of a wood 'slab' to be CNC'd, the Z origin (Z0), a probe can be run (lowered)")
-                    print("that makes contact to a thin metal plate on top of it. If the plate thickness is 2.1 mm, command 'origin Z2.1'")
-                    print("will make the probe point Z2.1, which is 2.1 mm above the wood 'slab'. After removing the thin metal plate,")
-                    print("command 'G1 Z0 F24' (move to Z0 with low speed, to be carefull) will make the router bit just touch the top")
-                    print("of the 'slab'. Metal objects to be CNC'd can do with command 'origin Z0' (with 0 offset).")
-                    print()
-                    print("Note that status report coordinates at the start of each grblhud commandline reflect the new coordinate offset")
-                    print("because it uses Work Position (WPos).")
-                    print()
-                    sr = input(f"Issue command 'origin {Xoffset}{Yoffset}{Zoffset}' (yes/no)? ")
-                    if sr.find("yes") >= 0:
-                        grblbuffer.serial.write((f"G92 {Xoffset}{Yoffset}{Zoffset}\n").encode())
-                        print(f"\ngrbl> G92 {Xoffset}{Yoffset}{Zoffset}\n")
-                    else:
-                        print("command aborted")
-                    Grblbuffer.STATUS_PAUZE = False
-                continue
-
-            # draw bounding box with low power laser setting
-            # gcodeFile = { "name" : "", "bBox" : "", "buffer" : [], "WHILE" : {} }
-            if line.find("Bbox") >= 0:
-                if "$32" in grblbuffer.machinesettings and int(grblbuffer.machinesettings["$32"]) != 1:
-                    print(f'Machine is not in laser mode! (setting $32={grblbuffer.machinesettings["$32"]})')
-                    print("command aborted")
-                    continue
-
-                with Grblbuffer.serialio_lock:
-                    Grblbuffer.STATUS_PAUZE = True
-
-                    fltPatt = "[\+|\-]?[0-9]+(\.[0-9]+)?"
-
-                    minX = ""
-                    minY = ""
-                    maxX = ""
-                    maxY = ""
-
-                    fromFile = ""
-
-                    feed = re.search(" F[0-9]+",line)
-                    if feed:
-                        feed = feed.group()[1:]
-                        # remove F<nr> from line
-                        line = re.sub(" F[0-9]+", "", line)
-                    else:
-                        feed = "F1000"
-
-                    bboxcoords = re.search(f' \(X{fltPatt},Y{fltPatt}\):\(X{fltPatt},Y{fltPatt}\)',line)
-                    if bboxcoords:
-                        bboxcoords = bboxcoords.group()[1:]
-                        minXY = re.search(f'\(X{fltPatt},Y{fltPatt}\)', bboxcoords).group()
-                        minX = re.search(f'X{fltPatt}',minXY).group()[1:]
-                        minY = re.search(f',Y{fltPatt}',minXY).group()[2:]
-
-                        maxXY = re.search(f':\(X{fltPatt},Y{fltPatt}\)', bboxcoords).group()[1:]
-                        maxX = re.search(f'X{fltPatt}',maxXY).group()[1:]
-                        maxY = re.search(f',Y{fltPatt}',maxXY).group()[2:]
-                    elif len(line) > len("Bbox"):
-                        print("Error in Bbox argument, format is: (X<min>,Y<min>):(X<max>,Y<max>)")
-                    else:
-                        if gcodeFile["name"]:
-                            if gcodeFile["bBox"]:
-                                # bbox coordinates from the current gcode file
-                                # format: '(X7.231380,Y8.677330):(X78.658588,Y24.579710)'
-                                minXY = re.search(f'^\(X{fltPatt},Y{fltPatt}\)', gcodeFile["bBox"])
-                                if minXY:
-                                    minX = re.search(f'X{fltPatt}',minXY.group()).group()[1:]
-                                    minY = re.search(f',Y{fltPatt}',minXY.group()).group()[2:]
-
-                                maxXY = re.search(f':\(X{fltPatt},Y{fltPatt}\)', gcodeFile["bBox"])
-                                if maxXY:
-                                    maxX = re.search(f'X{fltPatt}',maxXY.group()).group()[1:]
-                                    maxY = re.search(f',Y{fltPatt}',maxXY.group()).group()[2:]
-
-                                fromFile = f'- from file {gcodeFile["name"]} -'
-                            else:
-                                print("No Bbox info found in current gcode file.")
-                        else:
-                            print("Currently no gcode file is loaded. Use 'load <filename>' command to load a gcode file.")
-
-                    # check bbox
-                    if minX and minY and maxX and maxY:
-                        if float(minX) <= float(maxX) and float(minY) <= float(maxY):
-                            print(f'Draw bounding box: (X{minX},Y{minY}):(X{maxX},Y{maxY}) {fromFile} with laser intensity set to 1 and speed {feed}.')
-                            print("Make sure the work area is cleared and you wear glasses to be protected!")
-                            sr = input("Draw (yes/no)? ")
-                            if sr.find("yes") >= 0:
-                                grblbuffer.serial.write(("M5\n").encode())
-                                grblbuffer.serial.write((f'G1 X{minX} Y{minY} {feed}\n').encode())
-                                grblbuffer.serial.write(("M3\n").encode())
-                                grblbuffer.serial.write((f'G1 X{maxX} {feed} S1\n').encode())
-                                grblbuffer.serial.write((f'G1 Y{maxY} {feed} S1\n').encode())
-                                grblbuffer.serial.write((f'G1 X{minX} {feed} S1\n').encode())
-                                grblbuffer.serial.write((f'G1 Y{minY} {feed} S1\n').encode())
-                                grblbuffer.serial.write(("M5\n").encode())
-                                print("\ngrbl> M5")
-                                print("grbl> " + f'G1 X{minX} Y{minY} {feed}')
-                                print("grbl> M3")
-                                print("grbl> " + f'G1 X{maxX} {feed} S1')
-                                print("grbl> " + f'G1 Y{maxY} {feed} S1')
-                                print("grbl> " + f'G1 X{minX} {feed} S1')
-                                print("grbl> " + f'G1 Y{minY} {feed} S1')
-                                print("grbl> M5\n")
-                            else:
-                                print("command aborted")
-                        else:
-                            print(f'Bbox info error: (X{minX},Y{minY}):(X{maxX},Y{maxY})\nCommand aborted.')
-
-                    Grblbuffer.STATUS_PAUZE = False
-                continue
-
-            if line.find("showgcode") >= 0:
-                if not GCODE2IMAGE:
-                    print("showgcode needs gcode2image to be installed (pip install gcode2image), abort command!")
-                    continue
-
-                if grblbuffer.machinestatus["state"] != "Idle":
-                    print("Machinestate must be 'Idle' to show gcode")
-                    continue
-                if gcodeFile["name"] == '':
-                    print("Cannot show gcode: currently no file loaded!")
-                    continue
-                with Grblbuffer.serialio_lock:
-                    Grblbuffer.STATUS_PAUZE = True
-                    try:
-                        with open(gcodeFile["name"], "r") as fgcode:
-                            # flip to raster image coordinate system
-                            img = np.flipud(gcode2image(Namespace(gcode = fgcode, resolution = .1, showG0 = False, showOrigin = True, grid = True)))
-
-                            # convert to image
-                            img = Image.fromarray(img)
-
-                            # show image
-                            img.show()
-                    except IOError:
-                        print("file open error: file must be in the current directory, abort command!")
-
-                    Grblbuffer.STATUS_PAUZE = False
-                continue
-
 
             # pauze status report
             Grblbuffer.STATUS_PAUZE = True
