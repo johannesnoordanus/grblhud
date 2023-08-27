@@ -12,7 +12,7 @@ dynamic = ["version", "description"]
 
 keywords = ["grbl", "grblv1.1", "hud", "laser cutter", "laser engraving"]
 dependencies = [
-    "gcode2image >= 2.2",
+    "gcode2image >= 2.3",
     "inputimeout >= 1.0.4",
     "pyserial >= 3.5",
 ]
