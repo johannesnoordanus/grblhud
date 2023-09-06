@@ -12,9 +12,6 @@ from argparse import Namespace
 # needs pyserial!
 import serial
 
-from PIL import Image
-import numpy as np
-
 from inputimeout import inputimeout, TimeoutOccurred
 from grblhud import lineinput
 from grblhud.grblbuffer import Grblbuffer
@@ -24,6 +21,7 @@ from grblhud.unblockedgetch import UnblockedGetch
 GCODE2IMAGE = True
 try:
     from gcode2image import gcode2image
+
 except ImportError:
     GCODE2IMAGE = False
 
