@@ -1,38 +1,61 @@
 # grblhub
-Grblhud is an interactive grbl1.1 control center.
+Grblhud is an interactive grbl1.1 control center. It is easy to install and needs python version 3.7 or above. 
 
-It features full control of the grbl v1.1 device and supports <i>realtime</i> direct commands and buffered streaming of commands and programs.</br>
-Grbl state is in line viewable, showing (all) machine states i.e. <i>Idle, Run, Hold, Jog, Alarm, Door, Check, Home, Sleep</i> in color. State also includes current buffered (pending) gcode blocks (and no scrolling <i>ok's</i>)</br>
+**Grblhud** can run as a commandline program to stream gcode files directly to a grbl1.1 compatible machine. Just type 'grblhud gcodefile'.
+
+Streaming is done via a buffer counting protocol as described by the grbl standard and is error free and fast.
+
+**Grblhud** can run in interactive mode. Just type 'grblhud<enter>'.
+
+This mode features full control of the grbl v1.1 device and supports <i>realtime</i> direct commands and buffered streaming of commands and programs.
+
+Grbl state is realtime in line viewable, showing head location (XYZ) and the machine state *Idle, Run, Hold, Jog, Alarm, Door, Check, Home, Sleep* in color. State also includes current buffered (pending) gcode blocks (and no scrolling *ok's*).
+
 Grbl v1.1 error and Alarm code definitions are shown when they occur.
-Spindle and Feed settings can be updated realtime while gcode is running; gcode programs can be loaded and run with specific <i>Spindle</i> and <i>Feed</i> settings.</br>
-It is possible to easily draw a bounding box of a gcode program and set a new origin - workspace coordinates -.</br>
-CNC machines can do a Z probe to easily put the bit right on top of the object (to be CNC'd).</br>
-Gcode loops are simulated (using a very simple WHILE DO syntax that must be annotated within the gcode) and can be run separately and (be) iterated at will.
-Soft and hard-resets can be issued and <i>Ctrl-D</i> makes a full stop (to machine state <i>Door</i>).</br>
-This makes it easy to laser draw and cut without the need to (re)connect the device, so drawings and cuts have full (relative) machine precision.</br>   
 
-Grblhub is tested on several platforms - arm64/intel - and operating systems - Linux/macosx and two grbl v1.1 devices (a lasercutter and a CNC router)
+Spindle and Feed settings can be updated realtime while gcode is running; gcode programs can be loaded and run with specific *Spindle* and *Feed* settings.
+
+It is possible to easily draw a bounding box of a gcode program and set a new origin (workspace coordinates).
+
+CNC machines can do a Z probe to easily put the bit right on top of the object (to be CNC'd).
+
+Gcode loops are simulated (using a very simple WHILE DO syntax that must be annotated within the gcode) and can be run separately and (be) iterated at will.
+
+Soft and hard-resets can be issued and *Ctrl-D* makes a full stop (to machine state *Door*).
+
+This makes it easy to laser draw and cut without the need to (re)connect the device, so drawings and cuts have full (relative) machine precision.
+
+**Grblhub** is tested on several platforms - arm64/intel - and operating systems - Linux/macosx and two grbl v1.1 devices (a lasercutter and a CNC router)
 
 Information on grbl commands: https://github.com/gnea/grbl/blob/master/doc/markdown/commands.md
 
-Note that *image2gcode* and *svg2gcode* can be used to convert images and vector graphics to gcode at the highest quality. gcode2image can be used to validate these conversions and verify the layout before using grblhud to send the code to your lasercutter or cnc machine. https://github.com/johannesnoordanus?tab=repositories
-Also: *grblhud* now has a *showgcode* command, that runs *gcode2image* to show the currently loaded gcode (this includes the origin, size and orientation of the image).
+Note that *image2gcode* and *svg2gcode* can be used to convert images and vector graphics to gcode at the highest quality. *gcode2image* can be used to validate these conversions and verify the layout before using *grblhud* to send the code to your lasercutter or cnc machine. https://github.com/johannesnoordanus?tab=repositories
+
+Also: *grblhud* now has a *showgcode* command, that runs *gcode2image* to show the currently loaded gcode (this includes the origin, size and orientation of the image). Note that *gcode2image* must be *pip* installed first (a lot of python library code is needed for this to run, which might be too much for small computers having a low network bandwidth)
 
 ### First run:
 As shown below. If you do not specify a serial device, *grblhud* will open a default one and on error show a list of possible candidates you can choose one from, or type a device name you know.
+It then starts a status report and run loop.
 
-It then starts a status report and run loop. You can enter grbl(hud) commands from that point.
-The prompt shows realtime status information of the machine you are connected to (see the explanation of the *grblhud>* prompt below).</br>
-It is possible to 'stream' a gcode file 'directly' to the machine (via command *stream <file>*) or via a buffer (via commands *load <file>* and *run*.</br>
+If you add file names to the command, *grblhud* will stream the files directly to the device in non interactive mode. It does show a realime status report as mentioned below.
+
+Without file names grblhud enters interactive mode. 
+You can enter grbl(hud) commands from that point.
+
+The prompt shows realtime status information of the machine you are connected to (see the explanation of the *grblhud>* prompt below).
+
+It is possible to 'stream' a gcode file 'directly' to the machine (via command *stream <file>*) or via a buffer (via commands *load <file>* and *run*.
 The buffered approach makes additional features available, like running LOOPs and bounding boxes and updating F and S values for a specific gcode run.
-To exit, type *exit*.</br>
+
+To exit, type *exit*.
+
 Look at the short command summary below, so you are able the control the laser machine directly.
 Note that *load* and *run* commands can take a while on large gcode files, do not panic, realtime load/run information is shown and load/run can be aborted via *anykey* or ```<Ctrl><C>```.</br>
 When you do panic, because your laser machine is hitting walls etc, type ```<Ctrl><D>```, (or ```<Ctrl><C>``` first when commands *run* or *load* are executing)!
 
 ```
-$ grblhud --serialdevice /dev/cu.wchusbserial620
-Opened serial port /dev/cu.wchusbserial620 at 115200 bauds (bits/s)
+$ grblhud --serial /dev/ttyUSB0
+Opened serial port /dev/ttyUSB0 at 115200 bauds (bits/s)
 Initializing grbl...
 okok
 Status report every 0.1 seconds (WPos coordinates)
@@ -63,19 +86,52 @@ Explanation of the realtime 'grbl>' prompt:
 0|[Idle XYZ:-6.513,09.283,-0.500 FS:0,0] grbl> 
 ```
 ### Grblhud help:
+See notes below.
 ```
 $ grblhud --help
-usage: grblhud [-h] [--serialdevice /dev/ttyUSB0] [-V]
+usage: grblhud [-h] [--serial <default:/dev/ttyUSB0>] [-V] [gcode ...]
 
-Interactive grbl1.1 control center. Type 'grblhud<enter>' to start the 'hud'.
+Interactive grbl1.1 control center.
+  Type 'grblhud file' to stream file(s) to your machine
+  Type 'grblhud<enter>' to start the interactive 'hud'.
+
+positional arguments:
+  gcode                 gcode file(s) to stream to your machine
 
 options:
   -h, --help            show this help message and exit
-  --serialdevice /dev/ttyUSB0
+  --serial <default:/dev/ttyUSB0>
                         serial device of your machine (115200 baud)
   -V, --version         show version number and exit
 ```
-### Example run:
+You can also store the device setting in ~/.config/grblhud.toml, eg:
+```
+serial = "/dev/ttyUSB0
+```
+It can be used with any parameter which takes a value, and alows to persist your laser settings.
+
+### Example runs:
+**commandline**
+```
+$ grblhud ring10.gc ring70.gc
+Opened serial port /dev/ttyUSB0 at 115200 bauds (bits/s)
+Initializing grbl...
+Grbl 1.1h ['$' for help]
+Status report every 0.1 seconds (WPos coordinates)
+Start command queue
+0|[Idle XYZ:-0.700,-0.400,-1.000 FS:0,0] # stream ring10.gc
+Stream send: 118 lines, - wait for device to complete!
+0|[Run  XYZ:139.363,45.000,-1.000 FS:1000,0] # [MSG:Pgm End]
+0|[Idle XYZ:140.313,45.013,-1.000 FS:0,0] # stream ring70.gc
+Stream send: 224 lines, - wait for device to complete!
+0|[Run  XYZ:50.688,22.500,-1.000 FS:501,0] # [MSG:Pgm End]
+0|[Idle XYZ:50.000,22.500,-1.000 FS:0,0] #  
+Wait for program exit ....
+Status report exit
+End command queue
+Exit program
+```
+**interactive**
 ```
 grblhud --serialdevice /dev/cu.wchusbserial620
 0|[Idle XYZ:-6.513,09.283,-0.500 FS:0,0] grbl> help
@@ -145,7 +201,7 @@ Loops can be defined within a gcode file, as comments *;* using the syntax show 
 	- pip install grblhud 
 
 	To install additional tools:
+	- pip install gcode2image
 	- pip install image2gcode
 	- pip install svg2gcode
-	- pip install gcode2image (already loaded as a requirement of grblhud) 
 ```
