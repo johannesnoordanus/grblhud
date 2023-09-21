@@ -21,6 +21,8 @@ from grblhud.unblockedgetch import UnblockedGetch
 GCODE2IMAGE = True
 try:
     from gcode2image import gcode2image
+    from PIL import Image
+    import numpy as np
 
 except ImportError:
     GCODE2IMAGE = False
@@ -621,6 +623,7 @@ def grblhudloop(args):
                         # abort
                         return False
 
+                    getch_nowait = UnblockedGetch().getch_nowait
                     nbr_of_lines = 0
                     abort = False
                     # unroll loop(s);
@@ -648,9 +651,9 @@ def grblhudloop(args):
                                     sleep(.02)
                                     print("\033[ARun", i, "lines ...")
                                     if getch_nowait() != '':
-                                        sr = input(f"Abort run of {filePath} (yes/no)? ")
+                                        sr = input(f"Abort run of {fileName} (yes/no)? ")
                                         if sr.find("yes") >= 0:
-                                            print(f"run of file {filePath} aborted!")
+                                            print(f"run of file {fileName} aborted!")
                                             with Grblbuffer.bec:
                                                 print("Issued softstop (purged command buffer)")
                                                 # purge buffer
@@ -698,9 +701,9 @@ def grblhudloop(args):
                                                     sleep(.02)
                                                     print("\033[ARun", i, "lines ...")
                                                     if getch_nowait() != '':
-                                                        sr = input(f"Abort run of {filePath} (yes/no)? ")
+                                                        sr = input(f"Abort run of {fileName} (yes/no)? ")
                                                         if sr.find("yes") >= 0:
-                                                            print(f"run of file {filePath} aborted!")
+                                                            print(f"run of file {fileNAme} aborted!")
                                                             with Grblbuffer.bec:
                                                                 print("Issued softstop (purged command buffer)")
                                                                 # purge buffer
@@ -716,7 +719,7 @@ def grblhudloop(args):
                                     break
 
                         except KeyboardInterrupt:
-                            print(f"run of file {filePath} aborted!")
+                            print(f"run of file {fileName} aborted!")
                             with Grblbuffer.bec:
                                 print("Issued softstop (purged command buffer)")
                                 # purge buffer
@@ -726,7 +729,7 @@ def grblhudloop(args):
                             abort = True
                             break
                         except MemoryError:
-                            print(f"Out of memory! Run of file {filePath} aborted!")
+                            print(f"Out of memory! Run of file {fileName} aborted!")
                             with Grblbuffer.bec:
                                 print("Issued softstop (purged command buffer)")
                                 # purge buffer
@@ -767,9 +770,10 @@ def grblhudloop(args):
 
             with Grblbuffer.serialio_lock:
                 Grblbuffer.STATUS_PAUZE = True
-                sr = input(f"list file {filePath} [{pcstart}-{pcend}] (Press <anykey> to abort) (yes/no)? ")
+                sr = input(f"list [{pcstart}-{pcend}] (Press <anykey> to abort) (yes/no)? ")
 
                 if sr.find("yes") >= 0:
+                    getch_nowait = UnblockedGetch().getch_nowait
                     for i, line in enumerate(gcodeFile["buffer"]):
                         if i >= pcstart and i <= pcend:
                             print("[" + str(i) + "]\t", line, end = '')
