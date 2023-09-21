@@ -51,9 +51,10 @@ class Grblbuffer(threading.Thread):
     # pauze status report when true
     STATUS_PAUZE = False
 
-    def __init__(self, serial, grblinput):
+    def __init__(self, serial, grblinput, interactive: bool):
         threading.Thread.__init__(self)
         self.serial = serial
+        self.interactive = interactive
 
         # init
         self.grblinput = grblinput
@@ -194,9 +195,12 @@ class Grblbuffer(threading.Thread):
                         elif "Check" in self.machinestatus["state"]:
                             color = ''
 
-                        prompt_length = len(str(self.buffer_not_empty()) + "|" + self.format_machinestatus() + " grbl> ")
+                        endmarker =  "> " if self.interactive else "#  "
+                        endprompt =  " grbl" if self.interactive else " "
+
+                        prompt_length = len(str(self.buffer_not_empty()) + "|" + self.format_machinestatus() + endmarker + endprompt)
                         self.grblinput.display_line(str(self.buffer_not_empty()) + "|" + color + self.format_machinestatus() +
-                                                    Grblbuffer.EndCol + " grbl" + color + "> " + Grblbuffer.EndCol, prompt_length)
+                                                    Grblbuffer.EndCol + endprompt + color + endmarker + Grblbuffer.EndCol, prompt_length)
 
                         if self.status_plain:
                             # toggle it
@@ -253,9 +257,10 @@ class Grblbuffer(threading.Thread):
             sleep(delay)
         print("Status report exit")
 
-    def buffer_not_empty(self):
+    def buffer_not_empty(self) -> int:
         """
        	check if gcode buffer has elements
+        returns: 0 if buffer empty, buffer length if not
         """
         return len(self.gcode_buffer)
 
