@@ -44,7 +44,7 @@ You can enter grbl(hud) commands from that point.
 
 The prompt shows realtime status information of the machine you are connected to (see the explanation of the *grblhud>* prompt below).
 
-It is possible to 'stream' a gcode file 'directly' to the machine (via command *stream <file>*) or via a buffer (via commands *load <file>* and *run*.
+It is possible to 'stream' a gcode file 'directly' to the machine (via command *stream <file>*) or via a buffer (via commands *load <file>* and *run*).
 The buffered approach makes additional features available, like running LOOPs and bounding boxes and updating F and S values for a specific gcode run.
 
 To exit, type *exit*.
@@ -153,7 +153,8 @@ grblhud commands:
  - sleep                                             ($SLP command)
  - Zprobe                                            (lower head until 'probe' contact is made)
  - origin [X<coord>][Y<coord>][Z<coord>]             (make current XYZ: [X<coord>][Y<coord>][Z<coord>] (shift work coordinates))
- - Bbox [(X<min>,Y<min>):(X<max>,Y<max>)] [F<eed>]   (draw a bounding box with laser set to low )
+ - Bbox [(X<min>,Y<min>:X<max>,Y<max>)] [S<peed>] [F<eed>]
+                                                     (draw a bounding box of the current gcode file (no argument) or a self defind box)
  - Stoggle                                           (Spindle on/off, in 'Hold' state only)
 
 grbl commands:
