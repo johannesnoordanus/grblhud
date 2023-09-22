@@ -58,12 +58,12 @@ def count_321():
     print("\033[ARUN                                ")
     return True
 
-def is_int(i):
+def is_int(s: str) -> bool:
     """
     Check if string is int
     """
     try:
-        int(i)
+        int(s)
     except ValueError:
         return False
 
@@ -214,7 +214,8 @@ def grblhudloop(args):
             print(" - sleep                                             ($SLP command)")
             print(" - Zprobe                                            (lower head until 'probe' contact is made)")
             print(" - origin [X<coord>][Y<coord>][Z<coord>]             (make current XYZ: [X<coord>][Y<coord>][Z<coord>] (shift work coordinates))")
-            print(" - Bbox [(X<min>,Y<min>):(X<max>,Y<max>)] [F<eed>]   (draw a bounding box of the current gcode file (no argument) or a self defind box)")
+            print(" - Bbox [(X<min>,Y<min>:X<max>,Y<max>)] [S<peed>] [F<eed>]")
+            print("                                                     (draw a bounding box of the current gcode file (no argument) or a self defind box)")
             print(" - Stoggle                                           (Spindle on/off, in 'Hold' state only)")
             print()
             print("grbl commands:")
@@ -909,13 +910,15 @@ def grblhudloop(args):
         # draw bounding box with low power laser setting
         # gcodeFile = { "name" : "", "bBox" : "", "buffer" : [], "WHILE" : {} }
         if line.find("Bbox") >= 0 or line.find("bbox") >= 0:
-            if "$32" in grblbuffer.machinesettings and int(grblbuffer.machinesettings["$32"]) != 1:
-                print(f'Machine is not in laser mode! (setting $32={grblbuffer.machinesettings["$32"]})')
-                print("command aborted")
-                return False
 
             with Grblbuffer.serialio_lock:
                 Grblbuffer.STATUS_PAUZE = True
+
+                if "$32" in grblbuffer.machinesettings and int(grblbuffer.machinesettings["$32"]) != 1:
+                    print(f'Machine is not in laser mode! (setting $32={grblbuffer.machinesettings["$32"]})')
+                    print("command aborted")
+                    Grblbuffer.STATUS_PAUZE = False
+                    return False
 
                 fltPatt = "[\+|\-]?[0-9]+(\.[0-9]+)?"
 
@@ -934,29 +937,40 @@ def grblhudloop(args):
                 else:
                     feed = "F1000"
 
-                bboxcoords = re.search(f' \(X{fltPatt},Y{fltPatt}\):\(X{fltPatt},Y{fltPatt}\)',line)
+                speed = re.search(" S[0-9]+",line)
+                if speed:
+                    speed = speed.group()[1:]
+                    # remove S<nr> from line
+                    line = re.sub(" S[0-9]+", "", line)
+                else:
+                    speed = None
+
+                # format: (X0.0,Y0.0:X20.0,Y19.9)
+                # read coordinates from command (if any)
+                bboxcoords = re.search(f' \(X{fltPatt},Y{fltPatt}:X{fltPatt},Y{fltPatt}\)',line)
                 if bboxcoords:
                     bboxcoords = bboxcoords.group()[1:]
-                    minXY = re.search(f'\(X{fltPatt},Y{fltPatt}\)', bboxcoords).group()
+                    minXY = re.search(f'\(X{fltPatt},Y{fltPatt}', bboxcoords).group()
                     minX = re.search(f'X{fltPatt}',minXY).group()[1:]
                     minY = re.search(f',Y{fltPatt}',minXY).group()[2:]
 
-                    maxXY = re.search(f':\(X{fltPatt},Y{fltPatt}\)', bboxcoords).group()[1:]
+                    maxXY = re.search(f':X{fltPatt},Y{fltPatt}\)', bboxcoords).group()[1:]
                     maxX = re.search(f'X{fltPatt}',maxXY).group()[1:]
                     maxY = re.search(f',Y{fltPatt}',maxXY).group()[2:]
                 elif len(line) > len("Bbox"):
-                    print("Error in Bbox argument, format is: (X<min>,Y<min>):(X<max>,Y<max>)")
+                    print("Error in Bbox argument, format is: (X<min>,Y<min>:X<max>,Y<max>)")
                 else:
                     if gcodeFile["name"]:
                         if gcodeFile["bBox"]:
                             # bbox coordinates from the current gcode file
-                            # format: '(X7.231380,Y8.677330):(X78.658588,Y24.579710)'
-                            minXY = re.search(f'^\(X{fltPatt},Y{fltPatt}\)', gcodeFile["bBox"])
+                            # format: (X0.0,Y0.0:X20.0,Y19.9)
+                            print(f"bbox: {gcodeFile['bBox']}")
+                            minXY = re.search(f'^\(X{fltPatt},Y{fltPatt}', gcodeFile["bBox"])
                             if minXY:
                                 minX = re.search(f'X{fltPatt}',minXY.group()).group()[1:]
                                 minY = re.search(f',Y{fltPatt}',minXY.group()).group()[2:]
 
-                            maxXY = re.search(f':\(X{fltPatt},Y{fltPatt}\)', gcodeFile["bBox"])
+                            maxXY = re.search(f':X{fltPatt},Y{fltPatt}\)', gcodeFile["bBox"])
                             if maxXY:
                                 maxX = re.search(f'X{fltPatt}',maxXY.group()).group()[1:]
                                 maxY = re.search(f',Y{fltPatt}',maxXY.group()).group()[2:]
@@ -965,44 +979,56 @@ def grblhudloop(args):
                         else:
                             print("No Bbox info found in current gcode file.")
                     else:
-                        print("Currently no gcode file is loaded. Use 'load <filename>' command to load a gcode file.")
+                        print("Currently no gcode file is loaded.")
+                        print("Use either command 'load <filename>' or 'Bbox [(X<min>,Y<min>:X<max>,Y<max>)] [S<peed>] [F<eed>]'.")
 
                 # check bbox
                 if minX and minY and maxX and maxY:
-                    if float(minX) <= float(maxX) and float(minY) <= float(maxY):
-                        low_laser_intensity = 10
-                        if "$31" in grblbuffer.machinesettings and "$30" in grblbuffer.machinesettings:
-                            minimum_laser_intensity = grblbuffer.machinesettings["$31"]
-                            maximum_laser_intensity = grblbuffer.machinesettings["$30"]
-                            # set laser intensity to < 1%
-                            low_laser_intensity = (maximum_laser_intensity - minimum_laser_intensity)/100
-                        else:
-                            print(f"minimum and maximum laser intensity settings are unknown (type grbl command '$$'), set to default of {low_laser_intensity}")
 
-                        print(f'Draw bounding box: (X{minX},Y{minY}):(X{maxX},Y{maxY}) {fromFile} with laser intensity set to {low_laser_intensity} and speed {feed}.')
+                    if float(minX) <= float(maxX) and float(minY) <= float(maxY):
+                        low_laser_intensity = 1
+                        if speed:
+                            low_laser_intensity = speed[1:]
+                        else:
+                            if "$31" in grblbuffer.machinesettings and "$30" in grblbuffer.machinesettings:
+                                minimum_laser_intensity = grblbuffer.machinesettings["$31"]
+                                maximum_laser_intensity = grblbuffer.machinesettings["$30"]
+                                # set laser intensity to minimum_laser_intensity + 1
+                                low_laser_intensity = int(minimum_laser_intensity) + 1
+                            else:
+                                print(f"Cannot detemine minimum laser intensity, use grbl command '$$' to get this machine setting.")
+                                sr = input("Please enter laser intensity to draw the boundingbox: ")
+                                if sr and is_int(sr):
+                                    low_laser_intensity = int(sr)
+                                    print(f"Laser intensity set to {low_laser_intensity}!")
+                                else:
+                                    print(f"Laser intensity is not set (either empty or invalid), using default of {low_laser_intensity}!")
+
+                        print(f'Draw bounding box: (X{minX},Y{minY}):(X{maxX},Y{maxY}) {fromFile} with laser intensity'
+                              f' set to S{low_laser_intensity} and speed {feed}.')
                         print("Make sure the work area is cleared and you wear glasses to be protected!")
                         sr = input("Draw (yes/no)? ")
                         if sr.find("yes") >= 0:
                             grblbuffer.serial.write(("M5\n").encode())
                             grblbuffer.serial.write((f'G1 X{minX} Y{minY} {feed}\n').encode())
                             grblbuffer.serial.write(("M3\n").encode())
-                            grblbuffer.serial.write((f'G1 X{maxX} {feed} S1\n').encode())
-                            grblbuffer.serial.write((f'G1 Y{maxY} {feed} S1\n').encode())
-                            grblbuffer.serial.write((f'G1 X{minX} {feed} S1\n').encode())
-                            grblbuffer.serial.write((f'G1 Y{minY} {feed} S1\n').encode())
+                            grblbuffer.serial.write((f'G1 X{maxX} {feed} S{low_laser_intensity}\n').encode())
+                            grblbuffer.serial.write((f'G1 Y{maxY} {feed} S{low_laser_intensity}\n').encode())
+                            grblbuffer.serial.write((f'G1 X{minX} {feed} S{low_laser_intensity}\n').encode())
+                            grblbuffer.serial.write((f'G1 Y{minY} {feed} S{low_laser_intensity}\n').encode())
                             grblbuffer.serial.write(("M5\n").encode())
                             print("\ngrbl> M5")
                             print("grbl> " + f'G1 X{minX} Y{minY} {feed}')
                             print("grbl> M3")
-                            print("grbl> " + f'G1 X{maxX} {feed} S1')
-                            print("grbl> " + f'G1 Y{maxY} {feed} S1')
-                            print("grbl> " + f'G1 X{minX} {feed} S1')
-                            print("grbl> " + f'G1 Y{minY} {feed} S1')
+                            print("grbl> " + f'G1 X{maxX} {feed} S{low_laser_intensity}')
+                            print("grbl> " + f'G1 Y{maxY} {feed} S{low_laser_intensity}')
+                            print("grbl> " + f'G1 X{minX} {feed} S{low_laser_intensity}')
+                            print("grbl> " + f'G1 Y{minY} {feed} S{low_laser_intensity}')
                             print("grbl> M5\n")
                         else:
                             print("command aborted")
                     else:
-                        print(f'Bbox info error: (X{minX},Y{minY}):(X{maxX},Y{maxY})\nCommand aborted.')
+                        print(f'Bbox info error: (X{minX},Y{minY}:X{maxX},Y{maxY})\nCommand aborted.')
 
                 Grblbuffer.STATUS_PAUZE = False
             return False
