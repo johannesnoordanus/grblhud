@@ -52,7 +52,7 @@ def main():
     grblhud main
     """
     # command history handling
-    histfile = os.path.join(os.path.expanduser("~"), ".python_grblHUD_history")
+    histfile = os.path.join(os.path.expanduser("~"), ".grblhud_history")
     try:
         readline.read_history_file(histfile)
         # default history len is -1 (infinite), which may grow unruly
