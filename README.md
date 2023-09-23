@@ -66,6 +66,7 @@ Enter grblhud interactive mode:
   type 'help <enter>' for a command overview
   type 'exit <enter>' to leave
   command history:             type arrow up/down
+  command completion:          type <tab>
   interrupt buffer load/run:   type <Ctrl><C>
   machine full stop:           type <Ctrl><D>
   machine halt:                type '~ <enter>'
@@ -138,6 +139,8 @@ grblhud --serialdevice /dev/cu.wchusbserial620
 grblhud commands:
    <Ctrl><D> / FSTOP                                 (FULL MACHINE STOP (grbl1.1 state: 'Door'), issue softreset to continue)
 
+ - help                                              (this help)
+ - exit                                              (exit grblhud)
  - OS <Unix command>                                 (run a Unix command)
  - stream <filename>                                 (stream file 'directly' to the machine (Note that WHILE loops, F and S settings are not possible)
  - load <filename>                                   (load file to buffer)
