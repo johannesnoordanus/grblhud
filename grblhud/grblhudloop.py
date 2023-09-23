@@ -480,56 +480,56 @@ def grblhudloop(args):
                             print("Stream a file to the machine\nPress <anykey> to abort!")
                             sr = input(f"Stream file {filePath} (yes/no)? ")
 
-                        if sr.find("yes") >= 0:
-                            if not args.gcode:
-                                print("streaming file to machine ...\n")
-                            getch_nowait = UnblockedGetch().getch_nowait
-                            # for line in f:
-                            for i, line in enumerate(f):
-                                try:
-                                    if not args.gcode:
-                                        if i < NO_OF_LINES_SHOWN:
-                                            print("[" + str(i) + "]\t", line, end = '')
+                    if sr.find("yes") >= 0:
+                        if not args.gcode:
+                            print("streaming file to machine ...\n")
+                        getch_nowait = UnblockedGetch().getch_nowait
+                        # for line in f:
+                        for i, line in enumerate(f):
+                            try:
+                                if not args.gcode:
+                                    if i < NO_OF_LINES_SHOWN:
+                                        print("[" + str(i) + "]\t", line, end = '')
 
-                                        if i == NO_OF_LINES_SHOWN:
-                                            print("    ...\n    ...\n")
+                                    if i == NO_OF_LINES_SHOWN:
+                                        print("    ...\n    ...\n")
 
-                                    # check keypress every 1000 lines (to be able abort)
-                                    if i and i % 1000 == 0:
-                                        with Grblbuffer.serialio_lock:
-                                            sleep(.02)
-                                            print("\033[ALoaded", i, "lines ...")
-                                            if getch_nowait() != '':
-                                                sr = input(f"Abort stream {filePath} (yes/no)? ")
-                                                if sr.find("yes") >= 0:
-                                                    print(f"Stream aborted!")
-                                                    abort = True
-                                                    break
-                                                else:
-                                                    print("\n")
+                                # check keypress every 1000 lines (to be able abort)
+                                if i and i % 1000 == 0:
+                                    with Grblbuffer.serialio_lock:
+                                        sleep(.02)
+                                        print("\033[ALoaded", i, "lines ...")
+                                        if getch_nowait() != '':
+                                            sr = input(f"Abort stream {filePath} (yes/no)? ")
+                                            if sr.find("yes") >= 0:
+                                                print(f"Stream aborted!")
+                                                abort = True
+                                                break
+                                            else:
+                                                print("\n")
 
-                                    grblbuffer.put(line)
-                                except KeyboardInterrupt:
-                                    print(f"Stream {filePath} aborted!")
-                                    abort = True
-                                    break
-                                except MemoryError:
-                                    print(f"Out of memory! Stream {filePath} aborted!")
-                                    abort = True
-                                    break
+                                grblbuffer.put(line)
+                            except KeyboardInterrupt:
+                                print(f"Stream {filePath} aborted!")
+                                abort = True
+                                break
+                            except MemoryError:
+                                print(f"Out of memory! Stream {filePath} aborted!")
+                                abort = True
+                                break
 
-                            if abort:
-                                with Grblbuffer.bec:
-                                    print("Issued softstop (purged command buffer)")
-                                    # purge buffer
-                                    grblbuffer.init_buffer()
-                                # end grbl program (switch laser off)
-                                grblbuffer.serial.write("M2\n".encode())
-                            else:
-                                # give stream summary
-                                print("Stream send:", i, "lines, - wait for device to complete!")
+                        if abort:
+                            with Grblbuffer.bec:
+                                print("Issued softstop (purged command buffer)")
+                                # purge buffer
+                                grblbuffer.init_buffer()
+                            # end grbl program (switch laser off)
+                            grblbuffer.serial.write("M2\n".encode())
+                        else:
+                            # give stream summary
+                            print("Stream send:", i, "lines, - wait for device to complete!")
 
-                        Grblbuffer.STATUS_PAUZE = False
+                    Grblbuffer.STATUS_PAUZE = False
 
             except OSError:
                 print("could not open file:", filePath)
