@@ -30,6 +30,9 @@ except ImportError:
 SERIALDEVICE = ''
 NO_OF_LINES_SHOWN = 40
 
+GRBLHUDCOMMANDS = [ "help", "exit", "OS", "os", "stream", "load", "run", "listgcode", "showgcode", "setLOOP", "setloop", "S+", "S-",
+                    "F+", "F-", "softstop", "softreset", "hardreset", "sleep", "Zprobe", "zprobe", "origin", "Bbox", "bbox", "Stoggle", "stoggle" ]
+
 gcode_pattern = "^ *(G0|G1|X|Y|M4|M3|M5|M2|S|F|;|\$|~|!|\?)"
 
 def count_321():
@@ -66,7 +69,6 @@ def is_int(s: str) -> bool:
         int(s)
     except ValueError:
         return False
-
     return True
 
 def wait_on_line(ser):
@@ -199,6 +201,8 @@ def grblhudloop(args):
             print("grblhud commands:")
             print("   <Ctrl><D> / FSTOP                                 (FULL MACHINE STOP (grbl1.1 state: 'Door'), issue softreset to continue)")
             print()
+            print(" - help                                              (this help)")
+            print(" - exit                                              (exit grblhud)")
             print(" - OS <Unix command>                                 (run a Unix command)")
             print(" - stream <filename>                                 (stream file 'directly' to the machine (Note that WHILE loops, F and S settings are not possible)")
             print(" - load <filename>                                   (load file to buffer)")
@@ -297,7 +301,7 @@ def grblhudloop(args):
                 Grblbuffer.GRBLHUD_EXIT = False
                 # instantiate and run buffer thread (serial io to/from grbl device)
                 with Grblbuffer.serialio_lock:
-                    grblbuffer = Grblbuffer(ser, grblinput)
+                    grblbuffer = Grblbuffer(ser, grblinput, False if args.gcode else True)
                     sleep(1)
                 grblbuffer.start()
             return False
@@ -793,8 +797,9 @@ def grblhudloop(args):
                 Grblbuffer.STATUS_PAUZE = False
             return False
 
-        if line.find("setLOOP") >= 0 or line.find("setloop") > 0:
-            if re.search("setLOOP +[a-z|A-Z]+[0-9]? +[0-9]+ +[0-9]+ +[0-9]+", line):
+        if line.find("setLOOP") >= 0 or line.find("setloop") >= 0:
+            if (re.search("setLOOP +[a-z|A-Z]+[0-9]? +[0-9]+ +[0-9]+ +[0-9]+", line)
+                or re.search("setloop +[a-z|A-Z]+[0-9]? +[0-9]+ +[0-9]+ +[0-9]+", line)):
                 # setLOOP <loopname> <count> <pcstart> <pcend>
                 if grblbuffer.machinestatus["state"] != "Idle":
                     print("Machinestate must be 'Idle' to set a LOOP")
@@ -1141,8 +1146,15 @@ def grblhudloop(args):
             return False
 
         if line != '' and not re.search(gcode_pattern,line):
-            print(f"unknown grblhud command '{line}', type a GRBL command or one of:")
-            print("  help, OS, stream, load, run, listgcode, showgcode, setLOOP, S+, S-, F+, F-, softstop, softreset, hardreset, sleep, Zprobe, origin, Bbox, Stoggle")
+            print(f"unknown command '{line}':")
+            print(" - type help, or")
+            print(" - type <TAB> for command completion, or")
+            print(" - enter a GRBL command, or")
+            print(" - enter a grblhud command, one of")
+            print("   ", end = '')
+            print(*[c for c in GRBLHUDCOMMANDS[:int(len(GRBLHUDCOMMANDS)/2)]], sep = ", ")
+            print("   ", end = '')
+            print(*[c for c in GRBLHUDCOMMANDS[int(len(GRBLHUDCOMMANDS)/2):]], sep = ", ")
             return False
 
         # pauze status report
@@ -1175,6 +1187,7 @@ def grblhudloop(args):
         print("  type 'help <enter>' for a command overview")
         print("  type 'exit <enter>' to leave")
         print("  command history:             type arrow up/down")
+        print("  command completion:          type <tab>")
         print("  interrupt buffer load/run:   type <Ctrl><C>")
         print("  machine full stop:           type <Ctrl><D>")
         print("  machine halt:                type '~ <enter>'")

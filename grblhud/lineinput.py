@@ -29,14 +29,15 @@ class Input():
 
     # terminal control codes:
     # https://en.wikipedia.org/wiki/ANSI_escape_code
-    CR                  = '\x0D'        # or '/r'
+    CR                  = '\x0D'        # or '\r'
     ESCAPE              = '\x1b'        # or '\033' (note \0ctal escape code, decimal value: 27)
     CSI                 = ESCAPE + '['
     CURSOR_UP           = CSI + 'A'
     CURSOR_DOWN         = CSI + 'B'
     CURSOR_FORWARD      = CSI + 'C'
-    CURSOR_BACK         = CSI + 'D'     # or '/b'
-    BACKSPACE           = '\x7f'
+    CURSOR_BACK         = CSI + 'D'     # or '\b'
+    TAB                 = '\x09'
+    BACKSPACE           = '\x7f'        # delete char (commonly backspace 0x08 is mapped to delete char)
     ERASE_TO_EOL        = '\033[J'
     BEL                 = '\x07'        # when send to stdout: ring bell (if terminal bel is set on)
 
@@ -84,6 +85,8 @@ class Input():
         hindex = hendindex + 1
 
         Input.line_pos = 1
+
+        tab_repeat = 0
 
         while True:
             c = Input.unblkGetch()
@@ -138,6 +141,7 @@ class Input():
                         if Input.line_pos > 1:
                             print(Input.CURSOR_BACK, end = '', flush = True)
                             Input.line_pos -= 1
+                tab_repeat = 0
                 continue
 
             if c == Input.BACKSPACE:
@@ -145,10 +149,6 @@ class Input():
                 if Input.line_pos > 1:
                     # backspace has to clear one char, so
                     if len(Input.line) == Input.line_pos - 1:
-                        #print("b")
-                        # backspace has to clear one char, so
-                        #print('\b \b', end = '', flush = True)
-
                         # update admin (remove last char from line)
                         Input.line = Input.line[:-1]
                         Input.line_pos -= 1
@@ -158,6 +158,30 @@ class Input():
                         Input.line_pos -= 1
                         Input.line = Input.line[:Input.line_pos - 1] + Input.line[Input.line_pos:]
 
+                    # write updated line to display
+                    self.display_line()
+
+                tab_repeat = 0
+                continue
+
+            if c == Input.TAB:
+                # tab handling
+                completer = readline.get_completer()
+                if completer:
+                    sugg = completer(Input.line,tab_repeat)
+                    if sugg is not None:
+                        if tab_repeat == 0:
+                            current_line = Input.line
+                        Input.line = sugg
+                        tab_repeat = tab_repeat + 1
+                    else:
+                        if tab_repeat == 0:
+                            current_line = ""
+                        else:
+                            tab_repeat = 0
+                            Input.line = current_line
+
+                    Input.line_pos = len(Input.line) + 1
                     # write updated line to display
                     self.display_line()
 
@@ -171,7 +195,6 @@ class Input():
             # not a special key
             if len(Input.line) == Input.line_pos - 1:
                 Input.line += c
-                print(c, end = '', flush=True)
             else:
                 # insert char in line, update admin
                 Input.line = Input.line[:Input.line_pos-1] + c + Input.line[Input.line_pos-1:]
@@ -179,6 +202,7 @@ class Input():
 
             # write updated line to display
             self.display_line()
+            tab_repeat = 0
 
         line = ''
         if Input.line:
