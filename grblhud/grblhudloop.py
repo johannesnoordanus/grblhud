@@ -17,6 +17,7 @@ from grblhud import lineinput
 from grblhud.grblbuffer import Grblbuffer
 from grblhud.grblmessages import grbl_alarm
 from grblhud.unblockedgetch import UnblockedGetch
+from grblhud.lineinput import Input
 
 GCODE2IMAGE = True
 try:
@@ -360,7 +361,7 @@ def grblhudloop(args):
                                 if i and i % 1000 == 0:
                                     with Grblbuffer.serialio_lock:
                                         sleep(.02)
-                                        print("\033[ALoaded", i, "lines ...")
+                                        print("\033[A" + '\r' + Input.ERASE_TO_EOL + "Loaded", i, "lines ...", flush = True)
                                         if getch_nowait() != '':
                                             sr = input(f"Abort load of {filePath} (yes/no)? ")
                                             if sr.find("yes") >= 0:
@@ -456,7 +457,7 @@ def grblhudloop(args):
                                           "]-[", gcodeFile['WHILE'][loop]['pcend'], "]", sep = '')
                                 print("    (Note that loops can be run separately using 'run LOOP <loopname> [F<feed>] [S<speed>]')\n")
 
-                        Grblbuffer.STATUS_PAUZE = False
+                    Grblbuffer.STATUS_PAUZE = False
 
             except OSError:
                 print("could not open file:", filePath)
@@ -498,7 +499,8 @@ def grblhudloop(args):
                                 if i and i % 1000 == 0:
                                     with Grblbuffer.serialio_lock:
                                         sleep(.02)
-                                        print("\033[ALoaded", i, "lines ...")
+                                        #print("\033[ALoaded", i, "lines ...", flush = True)
+                                        print("\033[A" + '\r' + Input.ERASE_TO_EOL + "Loaded", i, "lines ...", flush = True)
                                         if getch_nowait() != '':
                                             sr = input(f"Abort stream {filePath} (yes/no)? ")
                                             if sr.find("yes") >= 0:
@@ -527,7 +529,7 @@ def grblhudloop(args):
                             grblbuffer.serial.write("M2\n".encode())
                         else:
                             # give stream summary
-                            print("Stream send:", i, "lines, - wait for device to complete!")
+                            print('\r' + Input.ERASE_TO_EOL + "Stream send:", i, "lines, - wait for device to complete!", flush = True)
 
                     Grblbuffer.STATUS_PAUZE = False
 
@@ -654,7 +656,8 @@ def grblhudloop(args):
                             # check keypress every 1000 lines (to be able abort)
                             if i and i % 1000 == 0:
                                     sleep(.02)
-                                    print("\033[ARun", i, "lines ...")
+                                    #print("\033[ARun", i, "lines ...")
+                                    print("\033[A" + '\r' + Input.ERASE_TO_EOL + "Run", i, "lines ...", flush = True)
                                     if getch_nowait() != '':
                                         sr = input(f"Abort run of {fileName} (yes/no)? ")
                                         if sr.find("yes") >= 0:
@@ -704,7 +707,8 @@ def grblhudloop(args):
                                             # check keypress every 1000 lines (to be able abort)
                                             if i and i % 1000 == 0:
                                                     sleep(.02)
-                                                    print("\033[ARun", i, "lines ...")
+                                                    #print("\033[ARun", i, "lines ...")
+                                                    print("\033[A" + '\r' + Input.ERASE_TO_EOL + "Run", i, "lines ...", flush = True)
                                                     if getch_nowait() != '':
                                                         sr = input(f"Abort run of {fileName} (yes/no)? ")
                                                         if sr.find("yes") >= 0:
@@ -785,7 +789,8 @@ def grblhudloop(args):
                             # check keypress every 1000 lines (to be able abort)
                             if i and i % 1000 == 0:
                                     sleep(.02)
-                                    print("\033[AListing", i, "lines ...")
+                                    #print("\033[AListing", i, "lines ...")
+                                    print("\033[A" + '\r' + Input.ERASE_TO_EOL + "Listing", i, "lines ...", flush = True)
                                     if getch_nowait() != '':
                                         sr = input(f"Abort gcode list (of {gcodeFile['name']} (yes/no)?")
                                         if sr.find("yes") >= 0:
@@ -1240,35 +1245,62 @@ def grblhudloop(args):
     grblbuffer.start()
 
     if args.gcode:
-        hudloopbody("")
-        sleep(.2)
-        error_state = False
-        for gc in args.gcode:
-            #hudloopbody("OS ls -alrt\n")
-            line = f"stream {gc.name}"
-            print(line)
-            if hudloopbody(line):
-                # exit on 'exit'
-                break
-
+        # enter grblhud non interactive mode
+        print("\n**************************************************")
+        print("grblhud non interactive mode:")
+        print("  to exit:   type <Ctrl><C>")
+        print()
+        print("Explanation of the realtime 'grbl>' prompt:")
+        print(" 101|[Hold XYZ:00.050,51.049,00.000 FS:0,850 ] grbl> ~")
+        print("  99|[Run  XYZ:59.268,19.031,00.000 FS:1050,0] grbl> hardreset")
+        print("   0|[Idle XYZ:141.840,45.351,00.000 FS:0,850] grbl> $$")
+        print("  ^    ^            ^                  ^                ^")
+        print("  |    |            |                  |                |")
+        print("  | 'grbl state'  'XYZ coordinates' 'Feed/Speed rates' '(grbl) commands you type'")
+        print("  | ")
+        print("'nbr of lines in buffer' (not the machine buffer!)")
+        print("\n**************************************************\n")
+        # JCL
+        try:
+            hudloopbody("")
             sleep(.2)
-            # wait for device ready
-            while grblbuffer.buffer_not_empty() or (grblbuffer.machinestatus["state"] != "Idle"):
-                if grblbuffer.machinestatus["state"] not in ["Idle", "Run"]:
-                    # error state, exit
-                    error_state = True
+            error_state = False
+            for gc in args.gcode:
+                line = f"stream {gc.name}"
+                with Grblbuffer.serialio_lock:
+                    Grblbuffer.STATUS_PAUZE = True
+                    print(line + "\n", flush = True)
+                    Grblbuffer.STATUS_PAUZE = False
+                if hudloopbody(line):
+                    # exit on 'exit'
                     break
-                sleep(.1)
 
-            if error_state:
-                break
+                sleep(.2)
+                # wait for device ready
+                while grblbuffer.buffer_not_empty() or (grblbuffer.machinestatus["state"] != "Idle"):
+                    if grblbuffer.machinestatus["state"] not in ["Idle", "Run"]:
+                        # error state, exit
+                        error_state = True
+                        break
+                    sleep(.2)
 
-        print("\nWait for program exit ....")
-        Grblbuffer.GRBLHUD_EXIT = True
-        grblbuffer.grblstatus.join()
-        # put something to get run loop out of waiting
-        grblbuffer.put(";")
-        grblbuffer.join()
+                if error_state:
+                    break
+            # exit
+            hudloopbody('exit')
+        except (KeyboardInterrupt, MemoryError):
+            with Grblbuffer.bec:
+                print("\nIssued softstop (purged command buffer)")
+                # purge buffer
+                grblbuffer.init_buffer()
+            # end grbl program (switch laser off)
+            grblbuffer.serial.write("M2\n".encode())
+            print("Wait for program exit ....")
+            Grblbuffer.GRBLHUD_EXIT = True
+            grblbuffer.grblstatus.join()
+            # put something to get run loop out of waiting
+            grblbuffer.put(";")
+            grblbuffer.join()
     else:
         # enter grblhud interactive mode
         hudloopinteractive()
