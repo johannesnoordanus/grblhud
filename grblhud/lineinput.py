@@ -9,7 +9,6 @@ import readline
 
 from time import sleep
 #from unblockedgetch import UnblockedGetch
-#import UnblockedGetch
 from grblhud.unblockedgetch import UnblockedGetch
 
 class Input():
@@ -30,6 +29,7 @@ class Input():
     # terminal control codes:
     # https://en.wikipedia.org/wiki/ANSI_escape_code
     CR                  = '\x0D'        # or '\r'
+    LF                  = '\x0A'        # or '\n'
     ESCAPE              = '\x1b'        # or '\033' (note \0ctal escape code, decimal value: 27)
     CSI                 = ESCAPE + '['
     CURSOR_UP           = CSI + 'A'
@@ -187,8 +187,8 @@ class Input():
 
                 continue
 
-            if c == '\n':
-                print(c, end = '', flush=True)
+            if c == Input.LF or c == Input.CR:
+                print(Input.LF, end = '', flush=True)
                 # return input line
                 break
 
@@ -232,18 +232,16 @@ def main():
 
     # test thread
     def status(delay, display):
-        print("start status")
         while not E:
             display("status> ")
             #print("\rstatus:", delay, "seconds", end = '', flush = True)
             sleep(delay)
-        print("end status")
 
     # create instance of Input class
     grblinput = Input()
 
-    # start test thread
-    grblstatus = threading.Thread(target=status, args=(2,grblinput.display_line))
+    # start test thread (status)
+    grblstatus = threading.Thread(target=status, args=(1,grblinput.display_line))
     grblstatus.start()
 
     # start input test
@@ -257,6 +255,7 @@ def main():
             break
         if len(line) == 1 and ord(line) == 4:
             print("break off")
+            break
 
 if __name__ == '__main__':
     main()
