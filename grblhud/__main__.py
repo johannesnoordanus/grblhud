@@ -50,7 +50,7 @@ def create_parser():
     """
     # defaults
     cfg = {
-        "serial_default" : "/dev/tty1USB0",
+        "serial_default" : "/dev/ttyUSB0",
     }
 
     if os.path.exists(config_file):
