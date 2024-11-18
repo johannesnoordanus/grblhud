@@ -137,11 +137,13 @@ def machine_open(device):
             # on linux (arm) (Manjaro linux kernel 6+): /dev/ttyUSB0			115200)
             known_serial_devices = ['/dev/' + item for item in filenames if re.match(".*(serial|usb|ch34)",item, re.IGNORECASE)]
 
-            if known_serial_devices != []:
-                print("Found the following serial usb device candidates:")
-                for dev in known_serial_devices:
-                    print("\t" + dev)
-            device = input("Enter device name: ")
+            if known_serial_devices:
+                device = known_serial_devices[0]
+                if len(known_serial_devices) > 1:
+                    print("Found the following serial usb device candidates:")
+                    for dev in known_serial_devices:
+                        print("\t" + dev + (" (default)" if dev == device else ""))
+                    device = input("Enter device name: ").strip() or device
             if device:
                 continue
             print("no serial device name given, program abort")
