@@ -1,5 +1,5 @@
 # grblhub
-Grblhud is an interactive grbl1.1 control center. It is easy to install and needs python version 3.7 or above. 
+**Grblhud** is an interactive grbl1.1 control center. It is easy to install and needs python version 3.7 or above. It runs on Linux and MacOS (not on windows, but see below). 
 
 **Grblhud** can run as a commandline program to stream gcode files directly to a grbl1.1 compatible machine. Just type 'grblhud gcodefile'.
 
@@ -25,7 +25,7 @@ Soft and hard-resets can be issued and *Ctrl-D* makes a full stop (to machine st
 
 This makes it easy to laser draw and cut without the need to (re)connect the device, so drawings and cuts have full (relative) machine precision.
 
-**Grblhub** is tested on several platforms - arm64/intel - and operating systems - Linux/macosx and two grbl v1.1 devices (a lasercutter and a CNC router)
+**Grblhub** is tested on several platforms - arm64/intel - and operating systems - Linux/macosx and two grbl v1.1 devices (a lasercutter and a CNC router). Note that it does not run on windows! (This is because Python module *termios* isn't available for windows. This library depends on POSIX which isn't part of the windows operating system. Note that you could install linux on a virtual machine on windows and use grblhud from a terminal on that.)
 
 Information on grbl commands: https://github.com/gnea/grbl/blob/master/doc/markdown/commands.md
 
