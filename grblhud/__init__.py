@@ -1,5 +1,5 @@
 """
 grblhub: a command line tool to handle grbl code.
 """
-__version__ = "1.7.10"
+__version__ = "1.7.11"
 
