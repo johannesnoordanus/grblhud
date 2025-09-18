@@ -33,7 +33,7 @@ Note that *image2gcode* and *svg2gcode* can be used to convert images and vector
 
 Also: *grblhud* now has a *showgcode* command, that runs *gcode2image* to show the currently loaded gcode (this includes the origin, size and orientation of the image). Note that *gcode2image* must be *pip* installed first (a lot of python library code is needed for this to run, which might be too much for small computers having a low network bandwidth)
 
-If you find this application useful, please consider donating, so I can continue maintaining and enhancing it.
+If you find this application useful, please consider donating, so I can continue maintaining and enhancing it.<br>
 <http://paypal.me/johannesnoordanus/5,00>
 ### First run:
 As shown below. If you do not specify a serial device, *grblhud* will open a default one and on error show a list of possible candidates you can choose one from, or type a device name you know.
