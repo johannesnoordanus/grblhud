@@ -135,16 +135,18 @@ def machine_open(device):
             # on iMac (2009): 				/dev/cu.wchusbserial410 	115200
             # on Mac mini (first Intel): 		/dev/cu.Repleo-CH341-0000105D 	115200
             # on linux (arm) (Manjaro linux kernel 6+): /dev/ttyUSB0			115200)
-            known_serial_devices = ['/dev/' + item for item in filenames if re.match(".*(serial|usb|ch34)",item, re.IGNORECASE)]
+            known_serial_devices = ['/dev/' + item for item in filenames if re.match(".*(serial|usb|cu|ch34)",item, re.IGNORECASE)]
 
+            device = None
             if known_serial_devices:
                 device = known_serial_devices[0]
-                if len(known_serial_devices) > 1:
+                if len(known_serial_devices) > 0:
                     print("Found the following serial usb device candidates:")
                     for dev in known_serial_devices:
                         print("\t" + dev + (" (default)" if dev == device else ""))
-                    device = input("Enter device name: ").strip() or device
-            if device:
+            # enter devicename, on empty set devicename to first of candidates if any
+            device = input("Enter serial device name ('q' to quit): ").strip() or device
+            if device and len(device) > 1:
                 continue
             print("no serial device name given, program abort")
             sys.exit()
